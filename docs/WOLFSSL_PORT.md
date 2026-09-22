@@ -5,6 +5,8 @@ wolfSSL 5.9.2 at commit `ac01707f552c611fbd135cc723b2682b3e7f80f2`
 and performs TLS 1.2 through custom callbacks over the already-connected
 Winsock socket. It loads `google-roots.pem` from beside the executable, enables
 peer verification and SNI, checks the requested hostname, and fails closed.
+The callbacks bound reads and writes with `select()`; Windows CE 5.2 returns
+`WSAENOPROTOOPT` for the desktop Winsock `SO_RCVTIMEO`/`SO_SNDTIMEO` options.
 
 For M3:
 

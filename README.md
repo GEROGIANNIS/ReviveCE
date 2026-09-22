@@ -15,7 +15,8 @@ The repository currently contains the **M0-M3 ReviveTLS proof application**:
   timeout;
 - local, credential-safe diagnostic logging;
 - a statically linked, pinned wolfSSL 5.9.2 TLS 1.2 client;
-- custom wolfSSL I/O over Winsock with bounded socket timeouts;
+- custom wolfSSL I/O over Winsock with `select()`-based deadlines compatible
+  with Windows CE 5.2;
 - SNI, certificate-chain verification, and hostname verification;
 - Google's maintained 21-certificate service trust bundle, shipped beside the
   executable rather than using Windows Mobile's obsolete certificate store;

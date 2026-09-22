@@ -26,6 +26,7 @@ struct ReviveTlsConnection
 namespace
 {
 const DWORD kMaximumCABundleBytes = 128 * 1024;
+const long kTlsIoTimeoutSeconds = 15;
 const char* const kSecureCipherList =
     "ECDHE-ECDSA-AES128-GCM-SHA256:"
     "ECDHE-RSA-AES128-GCM-SHA256:"
@@ -52,12 +53,44 @@ int SocketError(int nativeError, bool reading)
     }
 }
 
+int WaitForSocket(SOCKET socketHandle, bool reading)
+{
+    fd_set readySet;
+    fd_set errorSet;
+    timeval timeout;
+
+    FD_ZERO(&readySet);
+    FD_ZERO(&errorSet);
+    FD_SET(socketHandle, &readySet);
+    FD_SET(socketHandle, &errorSet);
+    timeout.tv_sec = kTlsIoTimeoutSeconds;
+    timeout.tv_usec = 0;
+
+    const int selected = select(0,
+        reading ? &readySet : NULL,
+        reading ? NULL : &readySet,
+        &errorSet, &timeout);
+    if (selected == SOCKET_ERROR)
+        return SocketError(WSAGetLastError(), reading);
+    if (selected == 0)
+        return WOLFSSL_CBIO_ERR_TIMEOUT;
+    if (FD_ISSET(socketHandle, &errorSet))
+        return WOLFSSL_CBIO_ERR_CONN_RST;
+    if (!FD_ISSET(socketHandle, &readySet))
+        return WOLFSSL_CBIO_ERR_GENERAL;
+    return 0;
+}
+
 int ReceiveCallback(WOLFSSL*, char* buffer, int length, void* context)
 {
     ReviveNetConnection* network =
         static_cast<ReviveNetConnection*>(context);
     if (network == NULL || network->socketHandle == INVALID_SOCKET)
         return WOLFSSL_CBIO_ERR_GENERAL;
+
+    const int waitResult = WaitForSocket(network->socketHandle, true);
+    if (waitResult != 0)
+        return waitResult;
 
     const int result = recv(network->socketHandle, buffer, length, 0);
     if (result > 0)
@@ -73,6 +106,10 @@ int SendCallback(WOLFSSL*, char* buffer, int length, void* context)
         static_cast<ReviveNetConnection*>(context);
     if (network == NULL || network->socketHandle == INVALID_SOCKET)
         return WOLFSSL_CBIO_ERR_GENERAL;
+
+    const int waitResult = WaitForSocket(network->socketHandle, false);
+    if (waitResult != 0)
+        return waitResult;
 
     const int result = send(network->socketHandle, buffer, length, 0);
     if (result >= 0)

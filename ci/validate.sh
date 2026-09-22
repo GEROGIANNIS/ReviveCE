@@ -52,6 +52,10 @@ if grep -q -- '-mwindows' ci/build-revivetls.sh; then
     echo "ERROR: ReviveTLS must not use desktop MinGW's -mwindows flag." >&2
     exit 1
 fi
+if grep -Eq 'SO_RCVTIMEO|SO_SNDTIMEO' revivece/net/socket.cpp; then
+    echo "ERROR: Windows CE 5.2 rejects socket timeout options with WSAENOPROTOOPT." >&2
+    exit 1
+fi
 if ! grep -q -- '-Wl,--subsystem,9:5.2' ci/build-revivetls.sh; then
     echo "ERROR: ReviveTLS must select Windows CE GUI subsystem 9, version 5.2." >&2
     exit 1

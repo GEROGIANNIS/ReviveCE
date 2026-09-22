@@ -69,6 +69,12 @@ if ($reviveTlsBuild -notmatch '-Wl,--subsystem,9:5\.2') {
 if ($reviveTlsBuild -notmatch 'libwolfssl\.a') {
     throw 'ReviveTLS CI build does not link the pinned wolfSSL library.'
 }
+
+$socketSource = Get-Content -Raw -LiteralPath `
+    (Join-Path $repositoryRoot 'revivece\net\socket.cpp')
+if ($socketSource -match 'SO_RCVTIMEO|SO_SNDTIMEO') {
+    throw 'Windows CE 5.2 rejects socket timeout options with WSAENOPROTOOPT.'
+}
 if ($reviveTlsBuild -notmatch 'google-roots\.pem') {
     throw 'ReviveTLS CI build does not package the Google CA bundle.'
 }
