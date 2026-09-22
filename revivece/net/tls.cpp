@@ -187,13 +187,14 @@ bool IsCertificateError(int error)
         return false;
     }
 }
-
+#ifdef DEBUG_WOLFSSL
 void WolfSslLogCallback(const int logLevel, const char* const logMessage)
 {
     (void)logLevel;
     if (logMessage != NULL)
         ReviveLog("WOLF", logMessage, 0);
 }
+#endif
 
 int DiagnosticVerifyCallback(int preverify, WOLFSSL_X509_STORE_CTX* store)
 {
@@ -295,8 +296,10 @@ ReviveTlsResult ReviveTLSConnect(ReviveNetConnection* network,
     }
     connection->wolfSslInitialized = true;
 
+#ifdef DEBUG_WOLFSSL
     wolfSSL_SetLoggingCb(WolfSslLogCallback);
     wolfSSL_Debugging_ON();
+#endif
 
     connection->context = wolfSSL_CTX_new(wolfTLSv1_2_client_method());
     if (connection->context == NULL)

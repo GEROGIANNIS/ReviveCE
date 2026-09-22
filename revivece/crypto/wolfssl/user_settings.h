@@ -23,11 +23,6 @@
 #define NO_OLD_TLS
 #undef WOLFSSL_TLS13
 
-/* Temporary: enable wolfSSL internal debug logging so that device test failures
- * produce a full trace of certificate chain processing. Remove once TLS proof
- * succeeds. Binary size will be larger due to embedded debug strings. */
-#define DEBUG_WOLFSSL
-
 /* Windows CE has a small process stack; move large temporary buffers to heap. */
 #define WOLFSSL_SMALL_STACK
 #define SINGLE_THREADED
