@@ -174,6 +174,23 @@ bool ReviveNetConnect(const char* host,
         return false;
     }
 
+    // Keep TLS handshakes and reads bounded on a device whose radio can drop
+    // without promptly closing the socket.
+    if (setsockopt(connection->socketHandle, SOL_SOCKET, SO_RCVTIMEO,
+                   reinterpret_cast<const char*>(&timeoutMilliseconds),
+                   sizeof(timeoutMilliseconds)) == SOCKET_ERROR ||
+        setsockopt(connection->socketHandle, SOL_SOCKET, SO_SNDTIMEO,
+                   reinterpret_cast<const char*>(&timeoutMilliseconds),
+                   sizeof(timeoutMilliseconds)) == SOCKET_ERROR)
+    {
+        nativeError = WSAGetLastError();
+        ReviveLog("NET", "socket timeout setup failed", nativeError);
+        Report(progress, REVIVE_NET_TCP, REVIVE_NET_FAILED, nativeError,
+               progressContext);
+        ReviveNetClose(connection);
+        return false;
+    }
+
     Report(progress, REVIVE_NET_TCP, REVIVE_NET_SUCCEEDED, 0,
            progressContext);
     ReviveLog("NET", "TCP connected", 0);

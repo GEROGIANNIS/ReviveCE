@@ -12,6 +12,7 @@ $requiredFiles = @(
     'ci\verify-ce-pe.sh',
     'ci\verify-pe.ps1',
     'ci\hello\hello.c',
+    'revivece\crypto\certs\google-roots.pem',
     'revivece\crypto\wolfssl\user_settings.h'
 )
 foreach ($requiredFile in $requiredFiles) {
@@ -40,8 +41,9 @@ if ($workflow -notmatch 'verify-ce-pe\.sh') {
 }
 if ($workflow -notmatch 'build-revivetls\.sh' -or
     $workflow -notmatch 'build-wolfssl\.sh' -or
-    $workflow -notmatch 'ReviveTLS-M2-WM6-ARMV4I') {
-    throw 'Toolchain workflow does not build and upload the ReviveTLS M2 artifact.'
+    $workflow -notmatch 'ReviveTLS-M3-WM6-ARMV4I' -or
+    $workflow -notmatch 'google-roots\.pem') {
+    throw 'Toolchain workflow does not build and upload the ReviveTLS M3 artifact.'
 }
 if ($workflow -notmatch 'ac01707f552c611fbd135cc723b2682b3e7f80f2') {
     throw 'wolfSSL dependency is not pinned to the reviewed 5.9.2 release commit.'
@@ -66,6 +68,9 @@ if ($reviveTlsBuild -notmatch '-Wl,--subsystem,9:5\.2') {
 }
 if ($reviveTlsBuild -notmatch 'libwolfssl\.a') {
     throw 'ReviveTLS CI build does not link the pinned wolfSSL library.'
+}
+if ($reviveTlsBuild -notmatch 'google-roots\.pem') {
+    throw 'ReviveTLS CI build does not package the Google CA bundle.'
 }
 foreach ($requiredSource in @(
     'app/main.cpp',
@@ -102,6 +107,19 @@ if ($wolfSslSettings -notmatch '#define ALIGN64\s+WOLFSSL_ALIGN\(8\)') {
 }
 if ($wolfSslSettings -notmatch '#include <time\.h>') {
     throw 'wolfSSL Windows CE build must expose time_t through time.h.'
+}
+
+$caBundlePath = Join-Path $repositoryRoot `
+    'revivece\crypto\certs\google-roots.pem'
+$certificateCount = (Select-String -LiteralPath $caBundlePath `
+    -Pattern '-----BEGIN CERTIFICATE-----').Count
+if ($certificateCount -ne 21) {
+    throw 'Google trust bundle must contain the reviewed 21 certificates.'
+}
+$bundleHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $caBundlePath).Hash
+if ($bundleHash -ne `
+    'EC989DF46C8F4419EF2EE2517CAD7619D555E4973F3307BE697662AA2497E480') {
+    throw 'Google trust bundle hash differs from the reviewed bundle.'
 }
 
 [xml]$project = Get-Content -Raw -LiteralPath $projectPath
@@ -149,7 +167,11 @@ $requiredPatterns = @(
     'ReviveNetConnect',
     'REVIVE_TLS_NOT_AVAILABLE',
     'WOLFSSL_USER_SETTINGS',
-    'wolfSSL_check_domain_name'
+    'WOLFSSL_VERIFY_PEER',
+    'wolfTLSv1_2_client_method',
+    'wolfSSL_UseSNI',
+    'wolfSSL_check_domain_name',
+    'wolfSSL_CTX_load_verify_buffer'
 )
 $allText = $source + "`n" + (Get-Content -Raw -LiteralPath `
     (Join-Path $repositoryRoot 'docs\WOLFSSL_PORT.md'))

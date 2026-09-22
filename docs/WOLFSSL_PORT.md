@@ -1,12 +1,12 @@
 # wolfSSL port boundary
 
-TLS is intentionally isolated behind `revivece/net/tls.h`. The M2 build links
+TLS is intentionally isolated behind `revivece/net/tls.h`. The M3 build links
 wolfSSL 5.9.2 at commit `ac01707f552c611fbd135cc723b2682b3e7f80f2`
-and exercises `wolfSSL_Init()`/`wolfSSL_Cleanup()`. The connection function
-still returns `REVIVE_TLS_NOT_AVAILABLE` and performs no TLS I/O, so an
-initialization result cannot be mistaken for a secure connection.
+and performs TLS 1.2 through custom callbacks over the already-connected
+Winsock socket. It loads `google-roots.pem` from beside the executable, enables
+peer verification and SNI, checks the requested hostname, and fails closed.
 
-For M2/M3:
+For M3:
 
 1. Keep wolfSSL pinned to a reviewed full release commit rather than tracking
    an unpinned branch.
@@ -25,8 +25,14 @@ For M2/M3:
    Mobile root store.
 6. Set peer verification, SNI, and `wolfSSL_check_domain_name()` before
    `wolfSSL_connect()`.
-7. Expose negotiated protocol and verification results to the UI separately.
+7. Expose handshake and verification results to the UI separately.
    A successful TCP connection is not a successful TLS connection.
+
+The checked-in bundle is the 21-certificate Google service CA list downloaded
+from `https://pki.goog/roots.pem`. Repository validation pins its SHA-256 to
+`ec989df46c8f4419ef2ee2517cad7619d555e4973f3307be697662aa2497e480`.
+Google advises synchronizing this list at least twice yearly because service
+chains can change; updating it requires review plus updating the pinned hash.
 
 Relevant upstream API documentation:
 

@@ -15,13 +15,14 @@ enum ReviveTlsResult
 
 struct ReviveTlsConnection;
 
-// M2 device proof. Availability is a compile-time property; initialization
-// runs wolfSSL's real global setup and cleanup without claiming a handshake.
+// Availability is a compile-time property. Initialization remains exposed as
+// a small diagnostic, while ReviveTLSConnect owns the real TLS lifecycle.
 bool ReviveTLSIsAvailable();
 bool ReviveTLSInitialize();
 
-// M2/M3 integration boundary. Until wolfSSL is compiled for ARMV4I this
-// function always fails closed with REVIVE_TLS_NOT_AVAILABLE.
+// Opens a TLS 1.2 client session over an already-connected socket. The CA
+// bundle is loaded into wolfSSL from the supplied PEM file; Windows Mobile's
+// certificate store and TLS implementation are never used.
 ReviveTlsResult ReviveTLSConnect(ReviveNetConnection* network,
                                  const char* host,
                                  const wchar_t* caBundlePath,

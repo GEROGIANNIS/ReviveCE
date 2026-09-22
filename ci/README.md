@@ -33,11 +33,11 @@ Run **WM6 ARMV4I Toolchain Test** from the Actions tab. A successful run:
 3. checks out wolfSSL 5.9.2 at full commit
    `ac01707f552c611fbd135cc723b2682b3e7f80f2`;
 4. builds a static Windows CE ARM wolfSSL library, `ci/hello/hello.c`, and the
-   M2 `ReviveTLS.exe` application;
+   M3 `ReviveTLS.exe` application and its reviewed Google CA bundle;
 5. parses both binary PE headers and requires ARM machine `0x01c0`, PE32,
    Windows CE GUI subsystem `9`, and subsystem version `5.2`;
-6. uploads `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M2-WM6-ARMV4I`, each with a
-   SHA-256 checksum.
+6. uploads `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M3-WM6-ARMV4I`; the latter
+   contains the executable, its SHA-256 checksum, and `google-roots.pem`.
 
 CI0-CI3 pass when the artifact is uploaded. CI4 passes only after the downloaded
 executable launches on the physical HTC Touch Pro.

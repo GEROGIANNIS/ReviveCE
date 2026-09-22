@@ -12,7 +12,7 @@ See `ci/README.md` for the pinned toolchain and source repositories.
 
 Run **WM6 ARMV4I Toolchain Test** manually from the repository's Actions tab.
 It can also run after changes to the workflow or `ci/` scripts. Its downloadable
-artifacts are `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M2-WM6-ARMV4I`.
+artifacts are `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M3-WM6-ARMV4I`.
 
 ## First device test: CI0-CI4
 
@@ -22,9 +22,10 @@ artifacts are `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M2-WM6-ARMV4I`.
 4. Check the included SHA-256.
 5. Copy `HelloWorld.exe` to the HTC Touch Pro and launch it.
 
-After HelloWorld launches, download `ReviveTLS-M2-WM6-ARMV4I`, copy
-`ReviveTLS.exe` to the phone, and run the M2 test over Wi-Fi. wolfSSL is linked
-statically, so no companion DLL is required.
+After HelloWorld launches, download `ReviveTLS-M3-WM6-ARMV4I`. Copy both
+`ReviveTLS.exe` and `google-roots.pem` into the same directory on the phone,
+then run the test over Wi-Fi. wolfSSL is linked statically, so no companion DLL
+is required; the PEM file is ReviveCE's independently updateable trust store.
 
 The workflow rejects desktop x86/x64 output by directly parsing the executable
 headers. It requires ARM machine `0x01c0`, PE32, Windows CE GUI subsystem `9`,
@@ -56,9 +57,9 @@ With Wi-Fi connected, tap **RUN TEST**. This first milestone should report:
 ```text
 DNS .............. OK
 TCP .............. OK
-wolfSSL Init ...... OK
-Certificate ...... NOT BUILT
-Hostname ......... NOT BUILT
+TLS 1.2 .......... OK
+Certificate ...... OK
+Hostname ......... OK
 ```
 
 The first run can trigger Windows Mobile's connection-selection UI. A failed
@@ -82,9 +83,12 @@ payloads.
 - **M1:** DNS resolves `imap.gmail.com` and TCP connects to port 993 over Wi-Fi.
 - **M2:** the pinned wolfSSL library initializes and cleans up without crashing
   on the physical phone.
+- **M3:** TLS 1.2 negotiates with `imap.gmail.com`, its certificate chain and
+  hostname verify against the bundled trust store, and an encrypted IMAP
+  greeting is received on the physical phone.
 
-An emulator run does not count as device acceptance. Certificate and hostname
-rows remain `NOT BUILT`; M2 initialization alone is not a TLS handshake.
+An emulator run does not count as device acceptance. All five rows must report
+`OK`; a successful TCP connection alone is not a TLS handshake.
 
 ## Repository validation
 

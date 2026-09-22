@@ -12,7 +12,9 @@
 
 /* WinCE headers otherwise define function-like min/max macros, which collide
  * with wolfCrypt's constant-time helpers. wc_port.h also needs time_t visible. */
-#define NOMINMAX
+#ifndef NOMINMAX
+#define NOMINMAX 1
+#endif
 #include <time.h>
 
 /* ReviveCE is a TLS 1.2 client. All transport I/O is supplied by revive_net. */

@@ -55,7 +55,7 @@ compile_source() {
 echo "Compiling pinned wolfSSL for Windows CE ARM..."
 while IFS= read -r -d '' source_file; do
     case "${source_file}" in
-        */evp.c|*/misc.c)
+        */asn_orig.c|*/evp.c|*/evp_pk.c|*/misc.c)
             continue
             ;;
     esac
@@ -65,7 +65,7 @@ done < <(find "${wolfssl_root}/wolfcrypt/src" -maxdepth 1 -type f \
 
 while IFS= read -r -d '' source_file; do
     case "$(basename "${source_file}")" in
-        ssl_*.c)
+        bio.c|conf.c|pk.c|pk_ec.c|pk_rsa.c|ssl_*.c|x509.c|x509_str.c)
             continue
             ;;
     esac

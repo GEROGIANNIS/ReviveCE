@@ -57,7 +57,7 @@ jobs:
         shell: bash
         run: bash ./ci/build-wolfssl.sh
 
-      - name: Build ReviveTLS M2
+      - name: Build ReviveTLS M3
         shell: bash
         run: bash ./ci/build-revivetls.sh
 
@@ -78,9 +78,10 @@ jobs:
       - name: Upload ReviveTLS device test
         uses: actions/upload-artifact@v7
         with:
-          name: ReviveTLS-M2-WM6-ARMV4I
+          name: ReviveTLS-M3-WM6-ARMV4I
           path: |
             dist/ReviveTLS.exe
             dist/ReviveTLS.exe.sha256
+            dist/google-roots.pem
           if-no-files-found: error
           retention-days: 14

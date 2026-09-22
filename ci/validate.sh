@@ -13,6 +13,7 @@ required_files=(
     "ci/hello/hello.c"
     "revivece/ReviveTLS.vcproj"
     "revivece/crypto/wolfssl/user_settings.h"
+    "revivece/crypto/certs/google-roots.pem"
     "revivece/net/tls.cpp"
 )
 for required_file in "${required_files[@]}"; do
@@ -28,7 +29,7 @@ grep -Eq 'ghcr\.io/enlyze/windows-ce-build-environment-arm@sha256:[0-9a-f]{64}' 
 grep -q 'verify-ce-pe.sh' "${workflow}"
 grep -q 'build-revivetls.sh' "${workflow}"
 grep -q 'build-wolfssl.sh' "${workflow}"
-grep -q 'ReviveTLS-M2-WM6-ARMV4I' "${workflow}"
+grep -q 'ReviveTLS-M3-WM6-ARMV4I' "${workflow}"
 grep -q 'ac01707f552c611fbd135cc723b2682b3e7f80f2' "${workflow}"
 
 if grep -q 'windows-latest' "${workflow}"; then
@@ -65,6 +66,21 @@ for required_source in app/main.cpp app/ui.cpp common/log.cpp net/socket.cpp net
         exit 1
     fi
 done
+grep -q 'google-roots.pem' ci/build-revivetls.sh
+grep -q 'google-roots.pem' "${workflow}"
+
+certificate_count=$(grep -c -- '-----BEGIN CERTIFICATE-----' \
+    revivece/crypto/certs/google-roots.pem)
+if [[ "${certificate_count}" -ne 21 ]]; then
+    echo "ERROR: Google trust bundle must contain the reviewed 21 certificates." >&2
+    exit 1
+fi
+bundle_sha256=$(sha256sum revivece/crypto/certs/google-roots.pem | cut -d' ' -f1)
+if [[ "${bundle_sha256}" != \
+    "ec989df46c8f4419ef2ee2517cad7619d555e4973f3307be697662aa2497e480" ]]; then
+    echo "ERROR: Google trust bundle hash differs from the reviewed bundle." >&2
+    exit 1
+fi
 
 wolfssl_settings="revivece/crypto/wolfssl/user_settings.h"
 for required_setting in \
@@ -102,6 +118,19 @@ for forbidden in \
     SSL_VERIFY_NONE; do
     if grep -Fq "${forbidden}" ${source_files}; then
         echo "ERROR: Forbidden insecure API or pattern found: ${forbidden}" >&2
+        exit 1
+    fi
+done
+
+tls_source="revivece/net/tls.cpp"
+for required_tls_control in \
+    WOLFSSL_VERIFY_PEER \
+    wolfTLSv1_2_client_method \
+    wolfSSL_UseSNI \
+    wolfSSL_check_domain_name \
+    wolfSSL_CTX_load_verify_buffer; do
+    if ! grep -q "${required_tls_control}" "${tls_source}"; then
+        echo "ERROR: TLS security control is missing: ${required_tls_control}." >&2
         exit 1
     fi
 done

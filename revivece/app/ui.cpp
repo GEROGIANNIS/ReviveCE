@@ -12,6 +12,7 @@ const wchar_t* const kServerDisplay = L"imap.gmail.com:993";
 const char* const kServerHost = "imap.gmail.com";
 const unsigned short kServerPort = 993;
 const DWORD kConnectTimeoutMilliseconds = 15000;
+const wchar_t* const kCABundleFileName = L"google-roots.pem";
 
 HWND g_statusControls[REVIVE_UI_ROW_COUNT];
 HWND g_runButton = NULL;
@@ -23,11 +24,38 @@ const wchar_t* RowName(ReviveUiRow row)
     {
         L"DNS",
         L"TCP",
-        L"wolfSSL Init",
+        L"TLS 1.2",
         L"Certificate",
         L"Hostname"
     };
     return names[row];
+}
+
+bool BuildCABundlePath(wchar_t* path, DWORD capacity)
+{
+    DWORD length;
+    DWORD separator = 0;
+    DWORD nameLength = 0;
+
+    if (path == NULL || capacity == 0)
+        return false;
+    length = GetModuleFileName(NULL, path, capacity);
+    if (length == 0 || length >= capacity)
+        return false;
+
+    for (DWORD index = 0; index < length; ++index)
+    {
+        if (path[index] == L'\\' || path[index] == L'/')
+            separator = index + 1;
+    }
+    while (kCABundleFileName[nameLength] != L'\0')
+        ++nameLength;
+    if (separator + nameLength + 1 > capacity)
+        return false;
+
+    for (DWORD index = 0; index <= nameLength; ++index)
+        path[separator + index] = kCABundleFileName[index];
+    return true;
 }
 
 const wchar_t* StateName(ReviveUiState state)
@@ -94,7 +122,10 @@ DWORD WINAPI NetworkWorker(void* context)
 {
     HWND window = static_cast<HWND>(context);
     ReviveNetConnection connection;
-    bool tlsInitialized = false;
+    ReviveTlsConnection* tlsConnection = NULL;
+    wchar_t caBundlePath[MAX_PATH];
+    char greeting[256];
+    bool succeeded = false;
 
     const bool connected = ReviveNetConnect(kServerHost, kServerPort,
         kConnectTimeoutMilliseconds, &connection, NetworkProgress, window);
@@ -103,21 +134,66 @@ DWORD WINAPI NetworkWorker(void* context)
         if (ReviveTLSIsAvailable())
         {
             PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_RUNNING, 0);
-            tlsInitialized = ReviveTLSInitialize();
-            PostStatus(window, REVIVE_UI_TLS,
-                       tlsInitialized ? REVIVE_UI_OK : REVIVE_UI_FAILED, 0);
+            PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_RUNNING, 0);
+            PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_RUNNING, 0);
+
+            ReviveTlsResult tlsResult = REVIVE_TLS_CONFIGURATION_ERROR;
+            if (BuildCABundlePath(caBundlePath, MAX_PATH))
+                tlsResult = ReviveTLSConnect(&connection, kServerHost,
+                                             caBundlePath, &tlsConnection);
+            else
+                ReviveLog("TLS", "CA bundle path construction failed", 0);
+
+            if (tlsResult == REVIVE_TLS_OK)
+            {
+                PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_OK, 0);
+                PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_OK, 0);
+                PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_OK, 0);
+                const int received = ReviveTLSRead(tlsConnection, greeting,
+                                                   sizeof(greeting));
+                if (received > 0)
+                {
+                    ReviveLog("IMAP", "encrypted server greeting received", 0);
+                    succeeded = true;
+                }
+                else
+                {
+                    PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_FAILED, 0);
+                }
+            }
+            else if (tlsResult == REVIVE_TLS_CERTIFICATE_ERROR)
+            {
+                PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_FAILED, 0);
+                PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_FAILED, 0);
+                PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_NOT_RUN, 0);
+            }
+            else if (tlsResult == REVIVE_TLS_HOSTNAME_ERROR)
+            {
+                PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_FAILED, 0);
+                PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_OK, 0);
+                PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_FAILED, 0);
+            }
+            else
+            {
+                PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_FAILED,
+                           static_cast<int>(tlsResult));
+                PostStatus(window, REVIVE_UI_CERTIFICATE,
+                           REVIVE_UI_NOT_RUN, 0);
+                PostStatus(window, REVIVE_UI_HOSTNAME,
+                           REVIVE_UI_NOT_RUN, 0);
+            }
         }
         else
         {
             PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_NOT_BUILT, 0);
+            PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_NOT_BUILT, 0);
+            PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_NOT_BUILT, 0);
         }
+        ReviveTLSClose(tlsConnection);
         ReviveNetClose(&connection);
     }
 
-    PostMessage(window, WM_REVIVE_TEST_COMPLETE,
-                connected && (!ReviveTLSIsAvailable() || tlsInitialized)
-                    ? TRUE : FALSE,
-                0);
+    PostMessage(window, WM_REVIVE_TEST_COMPLETE, succeeded ? TRUE : FALSE, 0);
     return 0;
 }
 
@@ -133,8 +209,12 @@ void BeginNetworkTest(HWND window)
     SetRow(REVIVE_UI_TLS,
            ReviveTLSIsAvailable() ? REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT,
            0);
-    SetRow(REVIVE_UI_CERTIFICATE, REVIVE_UI_NOT_BUILT, 0);
-    SetRow(REVIVE_UI_HOSTNAME, REVIVE_UI_NOT_BUILT, 0);
+    SetRow(REVIVE_UI_CERTIFICATE,
+           ReviveTLSIsAvailable() ? REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT,
+           0);
+    SetRow(REVIVE_UI_HOSTNAME,
+           ReviveTLSIsAvailable() ? REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT,
+           0);
     EnableWindow(g_runButton, FALSE);
 
     ReviveLog("APP", "network test started", 0);
@@ -280,7 +360,8 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message,
         }
         EnableWindow(g_runButton, TRUE);
         SetFocus(g_runButton);
-        ReviveLog("APP", wParam ? "TCP test completed" : "TCP test failed", 0);
+        ReviveLog("APP", wParam ? "secure TLS test completed"
+                                 : "secure TLS test failed", 0);
         return 0;
 
     case WM_CLOSE:
