@@ -1,4 +1,5 @@
 #include "../net/socket.h"
+#include "../net/tls.h"
 #include "ui.h"
 
 #include "resource.h"
@@ -22,7 +23,7 @@ const wchar_t* RowName(ReviveUiRow row)
     {
         L"DNS",
         L"TCP",
-        L"TLS 1.2",
+        L"wolfSSL Init",
         L"Certificate",
         L"Hostname"
     };
@@ -93,14 +94,30 @@ DWORD WINAPI NetworkWorker(void* context)
 {
     HWND window = static_cast<HWND>(context);
     ReviveNetConnection connection;
+    bool tlsInitialized = false;
 
     const bool connected = ReviveNetConnect(kServerHost, kServerPort,
         kConnectTimeoutMilliseconds, &connection, NetworkProgress, window);
     if (connected)
+    {
+        if (ReviveTLSIsAvailable())
+        {
+            PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_RUNNING, 0);
+            tlsInitialized = ReviveTLSInitialize();
+            PostStatus(window, REVIVE_UI_TLS,
+                       tlsInitialized ? REVIVE_UI_OK : REVIVE_UI_FAILED, 0);
+        }
+        else
+        {
+            PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_NOT_BUILT, 0);
+        }
         ReviveNetClose(&connection);
+    }
 
     PostMessage(window, WM_REVIVE_TEST_COMPLETE,
-                connected ? TRUE : FALSE, 0);
+                connected && (!ReviveTLSIsAvailable() || tlsInitialized)
+                    ? TRUE : FALSE,
+                0);
     return 0;
 }
 
@@ -113,7 +130,9 @@ void BeginNetworkTest(HWND window)
 
     SetRow(REVIVE_UI_DNS, REVIVE_UI_NOT_RUN, 0);
     SetRow(REVIVE_UI_TCP, REVIVE_UI_NOT_RUN, 0);
-    SetRow(REVIVE_UI_TLS, REVIVE_UI_NOT_BUILT, 0);
+    SetRow(REVIVE_UI_TLS,
+           ReviveTLSIsAvailable() ? REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT,
+           0);
     SetRow(REVIVE_UI_CERTIFICATE, REVIVE_UI_NOT_BUILT, 0);
     SetRow(REVIVE_UI_HOSTNAME, REVIVE_UI_NOT_BUILT, 0);
     EnableWindow(g_runButton, FALSE);
@@ -162,7 +181,9 @@ void CreateChildControls(HWND window)
         SendMessage(g_statusControls[row], WM_SETFONT,
                     reinterpret_cast<WPARAM>(font), TRUE);
         SetRow(static_cast<ReviveUiRow>(row),
-               row < REVIVE_UI_TLS ? REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT,
+               row < REVIVE_UI_TLS ||
+                   (row == REVIVE_UI_TLS && ReviveTLSIsAvailable())
+                       ? REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT,
                0);
         top += rowHeight;
     }

@@ -20,3 +20,4 @@ BuildLog.htm
 # CI-generated build output.
 dist/
 obj/
+/third_party/wolfssl/

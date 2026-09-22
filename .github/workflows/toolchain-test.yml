@@ -6,7 +6,9 @@ on:
     paths:
       - ".github/workflows/toolchain-test.yml"
       - "ci/**"
-      - "revivece/tests/validate.ps1"
+      - "revivece/**"
+      - "docs/**"
+      - "README.md"
 
 permissions:
   contents: read
@@ -35,6 +37,14 @@ jobs:
           command -v arm-mingw32ce-objdump
           arm-mingw32ce-gcc --version
 
+      - name: Check out pinned wolfSSL 5.9.2
+        uses: actions/checkout@v7
+        with:
+          repository: wolfSSL/wolfssl
+          ref: ac01707f552c611fbd135cc723b2682b3e7f80f2
+          path: third_party/wolfssl
+          persist-credentials: false
+
       - name: Build ARMV4I HelloWorld
         shell: bash
         run: bash ./ci/build-hello.sh
@@ -43,7 +53,11 @@ jobs:
         shell: bash
         run: bash ./ci/verify-ce-pe.sh ./dist/HelloWorld.exe
 
-      - name: Build ReviveTLS M1
+      - name: Build wolfSSL for Windows CE ARM
+        shell: bash
+        run: bash ./ci/build-wolfssl.sh
+
+      - name: Build ReviveTLS M2
         shell: bash
         run: bash ./ci/build-revivetls.sh
 
@@ -64,7 +78,7 @@ jobs:
       - name: Upload ReviveTLS device test
         uses: actions/upload-artifact@v7
         with:
-          name: ReviveTLS-M1-WM6-ARMV4I
+          name: ReviveTLS-M2-WM6-ARMV4I
           path: |
             dist/ReviveTLS.exe
             dist/ReviveTLS.exe.sha256

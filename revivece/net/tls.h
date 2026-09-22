@@ -15,6 +15,11 @@ enum ReviveTlsResult
 
 struct ReviveTlsConnection;
 
+// M2 device proof. Availability is a compile-time property; initialization
+// runs wolfSSL's real global setup and cleanup without claiming a handshake.
+bool ReviveTLSIsAvailable();
+bool ReviveTLSInitialize();
+
 // M2/M3 integration boundary. Until wolfSSL is compiled for ARMV4I this
 // function always fails closed with REVIVE_TLS_NOT_AVAILABLE.
 ReviveTlsResult ReviveTLSConnect(ReviveNetConnection* network,

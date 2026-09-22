@@ -4,10 +4,17 @@ set -euo pipefail
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_directory="${repository_root}/dist"
 output_file="${output_directory}/ReviveTLS.exe"
+wolfssl_root="${repository_root}/third_party/wolfssl"
+wolfssl_library="${repository_root}/obj/wolfssl/libwolfssl.a"
+wolfssl_configuration="${repository_root}/revivece/crypto/wolfssl"
 
 compiler="arm-mingw32ce-g++"
 command -v "${compiler}" >/dev/null
 mkdir -p "${output_directory}"
+if [[ ! -s "${wolfssl_library}" ]]; then
+    echo "ERROR: wolfSSL library is missing; run ci/build-wolfssl.sh first." >&2
+    exit 1
+fi
 
 sources=(
     "${repository_root}/revivece/app/main.cpp"
@@ -17,7 +24,7 @@ sources=(
     "${repository_root}/revivece/net/tls.cpp"
 )
 
-echo "Compiling ReviveTLS M1 for Windows CE ARM..."
+echo "Compiling ReviveTLS M2 for Windows CE ARM..."
 "${compiler}" \
     -std=gnu++98 \
     -Os \
@@ -34,6 +41,10 @@ echo "Compiling ReviveTLS M1 for Windows CE ARM..."
     -DUNICODE \
     -D_UNICODE \
     -DWIN32_PLATFORM_PSPC \
+    -DREVIVECE_WITH_WOLFSSL \
+    -DWOLFSSL_USER_SETTINGS \
+    -I"${wolfssl_configuration}" \
+    -I"${wolfssl_root}" \
     -ffunction-sections \
     -fdata-sections \
     -Wl,--gc-sections \
@@ -43,7 +54,9 @@ echo "Compiling ReviveTLS M1 for Windows CE ARM..."
     -s \
     -o "${output_file}" \
     "${sources[@]}" \
-    -lws2
+    "${wolfssl_library}" \
+    -lws2 \
+    -lm
 
 test -s "${output_file}"
 echo "Built ${output_file}"

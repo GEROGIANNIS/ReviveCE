@@ -8,9 +8,11 @@ $requiredFiles = @(
     'ci\validate.sh',
     'ci\build-hello.sh',
     'ci\build-revivetls.sh',
+    'ci\build-wolfssl.sh',
     'ci\verify-ce-pe.sh',
     'ci\verify-pe.ps1',
-    'ci\hello\hello.c'
+    'ci\hello\hello.c',
+    'revivece\crypto\wolfssl\user_settings.h'
 )
 foreach ($requiredFile in $requiredFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot $requiredFile) `
@@ -37,8 +39,12 @@ if ($workflow -notmatch 'verify-ce-pe\.sh') {
     throw 'Toolchain workflow does not verify the output PE headers.'
 }
 if ($workflow -notmatch 'build-revivetls\.sh' -or
-    $workflow -notmatch 'ReviveTLS-M1-WM6-ARMV4I') {
-    throw 'Toolchain workflow does not build and upload the ReviveTLS M1 artifact.'
+    $workflow -notmatch 'build-wolfssl\.sh' -or
+    $workflow -notmatch 'ReviveTLS-M2-WM6-ARMV4I') {
+    throw 'Toolchain workflow does not build and upload the ReviveTLS M2 artifact.'
+}
+if ($workflow -notmatch 'ac01707f552c611fbd135cc723b2682b3e7f80f2') {
+    throw 'wolfSSL dependency is not pinned to the reviewed 5.9.2 release commit.'
 }
 
 $helloBuild = Get-Content -Raw -LiteralPath `
@@ -58,6 +64,9 @@ if ($reviveTlsBuild -match '-mwindows') {
 if ($reviveTlsBuild -notmatch '-Wl,--subsystem,9:5\.2') {
     throw 'ReviveTLS must select Windows CE GUI subsystem 9, version 5.2.'
 }
+if ($reviveTlsBuild -notmatch 'libwolfssl\.a') {
+    throw 'ReviveTLS CI build does not link the pinned wolfSSL library.'
+}
 foreach ($requiredSource in @(
     'app/main.cpp',
     'app/ui.cpp',
@@ -67,6 +76,23 @@ foreach ($requiredSource in @(
 )) {
     if ($reviveTlsBuild -notmatch [regex]::Escape("revivece/$requiredSource")) {
         throw "ReviveTLS CI build omits revivece/$requiredSource."
+    }
+}
+
+$wolfSslSettings = Get-Content -Raw -LiteralPath `
+    (Join-Path $repositoryRoot 'revivece\crypto\wolfssl\user_settings.h')
+foreach ($requiredSetting in @(
+    'WOLFSSL_USER_IO',
+    'NO_WOLFSSL_SERVER',
+    'NO_OLD_TLS',
+    'HAVE_SNI',
+    'HAVE_SUPPORTED_CURVES',
+    'HAVE_AESGCM',
+    'HAVE_ECC',
+    'WC_RSA_BLINDING'
+)) {
+    if ($wolfSslSettings -notmatch [regex]::Escape($requiredSetting)) {
+        throw "wolfSSL security setting is missing: $requiredSetting."
     }
 }
 

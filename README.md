@@ -6,7 +6,7 @@ Windows Mobile 6.1 Professional on ARMV4I.
 
 ## Current milestone
 
-The repository currently contains the **M0/M1 ReviveTLS proof application**:
+The repository currently contains the **M0-M2 ReviveTLS proof application**:
 
 - a native Win32/Windows CE user interface sized for a 480 x 640 device;
 - a worker-thread network test so DNS timeouts do not freeze the UI;
@@ -14,15 +14,16 @@ The repository currently contains the **M0/M1 ReviveTLS proof application**:
 - a non-blocking TCP connection to `imap.gmail.com:993` with a 15-second
   timeout;
 - local, credential-safe diagnostic logging;
-- a fail-closed TLS placeholder.
+- a statically linked, pinned wolfSSL 5.9.2 initialization proof;
+- a fail-closed TLS connection placeholder.
 
-The program deliberately reports `NOT BUILT` for TLS, certificate, and hostname
-verification. No connection is ever presented as secure until wolfSSL is
-integrated and all three checks pass on physical hardware.
+The M2 build reports wolfSSL initialization separately. Certificate and
+hostname verification remain `NOT BUILT`, and no connection is presented as
+secure until the M3 handshake and both verification stages pass on hardware.
 
 The canonical build machine is GitHub Actions. The workflow uses a
 digest-pinned, open-source CeGCC 9.3 container to build both the proven ARM
-HelloWorld smoke test and the M1 `ReviveTLS.exe`. It rejects either result
+HelloWorld smoke test and the M2 `ReviveTLS.exe`. It rejects either result
 unless its PE headers identify it as an ARM Windows CE 5.2 GUI program. No
 repository secrets or proprietary compiler downloads are required.
 
