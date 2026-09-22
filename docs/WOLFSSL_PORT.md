@@ -20,11 +20,12 @@ SHA-1 internally for chain verification and fingerprinting, and MD5 for ASN.1
 OID processing. Disabling either causes `wolfSSL_connect()` to return a
 certificate error before hostname verification runs.
 
-`WOLFSSL_SP_4096` and `WOLFSSL_SP_384` are required. `WOLFSSL_SP_MATH_ALL` only
-includes RSA 2048/3072 and ECC P-256 by default. Google's GTS Root R1 uses an
-RSA 4096 key and GTS Root R3/R4 use ECC P-384. Without the extended key-size
-defines, wolfSSL cannot verify any certificate signed by those roots and returns
-`ASN_SIG_CONFIRM_E` (-155).
+`WOLFSSL_SP_4096`, `WOLFSSL_SP_384`, and `SP_INT_BITS 4096` are required.
+`WOLFSSL_SP_MATH_ALL` only includes RSA 2048/3072 and ECC P-256 by default.
+Google's GTS Root R1 uses an RSA 4096 key and GTS Root R3/R4 use ECC P-384.
+Without `WOLFSSL_SP_4096` and `SP_INT_BITS 4096`, wolfSSL defaults `SP_INT_BITS`
+and `RSA_MAX_SIZE` to 3072 bits, rejecting 4096-bit RSA keys with `WC_KEY_SIZE_E`
+(-131) and returning `ASN_SIG_CONFIRM_E` (-155).
 
 For M3:
 
