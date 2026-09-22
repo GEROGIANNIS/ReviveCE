@@ -1,0 +1,60 @@
+name: WM6 ARMV4I Toolchain Test
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/toolchain-test.yml"
+      - "ci/**"
+      - "revivece/tests/validate.ps1"
+
+permissions:
+  contents: read
+
+jobs:
+  build-hello-world:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      REVIVECE_TOOLCHAIN_ARCHIVE_URL: ${{ secrets.REVIVECE_TOOLCHAIN_ARCHIVE_URL }}
+      REVIVECE_TOOLCHAIN_ARCHIVE_SHA256: ${{ secrets.REVIVECE_TOOLCHAIN_ARCHIVE_SHA256 }}
+
+    steps:
+      - name: Check out ReviveCE
+        uses: actions/checkout@v7
+
+      - name: Validate repository contracts
+        shell: powershell
+        run: .\revivece\tests\validate.ps1
+
+      - name: Bootstrap private WM6 toolchain
+        shell: powershell
+        run: .\ci\install-toolchain.ps1
+
+      - name: Verify compiler environment
+        shell: cmd
+        run: |
+          call ci\setup-wince-env.cmd
+          if errorlevel 1 exit /b 1
+          "%REVIVECE_CL%" /? >nul
+          if errorlevel 1 exit /b 1
+          "%REVIVECE_LINK%" /? >nul
+          if errorlevel 1 exit /b 1
+
+      - name: Build ARMV4I HelloWorld
+        shell: cmd
+        run: call ci\build-hello.cmd
+
+      - name: Verify ARM Windows CE executable
+        shell: powershell
+        run: .\ci\verify-pe.ps1 -Path .\dist\HelloWorld.exe
+
+      - name: Upload phone test artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: WM6-ARMV4I-HelloWorld
+          path: |
+            dist/HelloWorld.exe
+            dist/HelloWorld.exe.sha256
+          if-no-files-found: error
+          retention-days: 14
