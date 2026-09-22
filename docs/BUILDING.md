@@ -4,12 +4,11 @@
 
 No legacy development tools need to be installed on the user's computer. The
 canonical builder is `.github/workflows/toolchain-test.yml`, pinned to the
-`windows-2022` GitHub-hosted image.
+`ubuntu-22.04` GitHub-hosted image and a specific CeGCC 9.3 container digest.
 
-The workflow needs a legally licensed private toolchain ZIP and its SHA-256 in
-GitHub Actions secrets. See `ci/README.md` for the exact archive contract and
-secret names. The toolchain is downloaded into the ephemeral runner, verified,
-used, and discarded. It is never cached or uploaded as an artifact.
+The container is public and built from open source specifically for Windows CE
+ARM and x86 development. No repository secrets or private archives are needed.
+See `ci/README.md` for the pinned toolchain and source repositories.
 
 Run **WM6 ARMV4I Toolchain Test** manually from the repository's Actions tab.
 It can also run after changes to the workflow or `ci/` scripts. Its downloadable
@@ -17,8 +16,8 @@ artifact is `WM6-ARMV4I-HelloWorld`.
 
 ## First device test: CI0-CI4
 
-1. Configure the two private repository secrets described in `ci/README.md`.
-2. Run the toolchain workflow.
+1. Push the workflow and CI scripts to GitHub.
+2. Run the toolchain workflow, or let its path-filtered push trigger run it.
 3. Download `WM6-ARMV4I-HelloWorld` from the completed run.
 4. Check the included SHA-256.
 5. Copy `HelloWorld.exe` to the HTC Touch Pro and launch it.

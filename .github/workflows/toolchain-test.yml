@@ -10,44 +10,37 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   build-hello-world:
-    runs-on: windows-2022
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
-    env:
-      REVIVECE_TOOLCHAIN_ARCHIVE_URL: ${{ secrets.REVIVECE_TOOLCHAIN_ARCHIVE_URL }}
-      REVIVECE_TOOLCHAIN_ARCHIVE_SHA256: ${{ secrets.REVIVECE_TOOLCHAIN_ARCHIVE_SHA256 }}
+    container:
+      image: ghcr.io/enlyze/windows-ce-build-environment-arm@sha256:22ea23d697accaab2b98fb12d81ccc1faade90f9fe490f554ae7c5c194dfe27c
 
     steps:
       - name: Check out ReviveCE
         uses: actions/checkout@v7
 
       - name: Validate repository contracts
-        shell: powershell
-        run: .\revivece\tests\validate.ps1
+        shell: bash
+        run: bash ./ci/validate.sh
 
-      - name: Bootstrap private WM6 toolchain
-        shell: powershell
-        run: .\ci\install-toolchain.ps1
-
-      - name: Verify compiler environment
-        shell: cmd
+      - name: Verify CeGCC ARM compiler
+        shell: bash
         run: |
-          call ci\setup-wince-env.cmd
-          if errorlevel 1 exit /b 1
-          "%REVIVECE_CL%" /? >nul
-          if errorlevel 1 exit /b 1
-          "%REVIVECE_LINK%" /? >nul
-          if errorlevel 1 exit /b 1
+          command -v arm-mingw32ce-gcc
+          command -v arm-mingw32ce-objdump
+          arm-mingw32ce-gcc --version
 
       - name: Build ARMV4I HelloWorld
-        shell: cmd
-        run: call ci\build-hello.cmd
+        shell: bash
+        run: bash ./ci/build-hello.sh
 
       - name: Verify ARM Windows CE executable
-        shell: powershell
-        run: .\ci\verify-pe.ps1 -Path .\dist\HelloWorld.exe
+        shell: bash
+        run: bash ./ci/verify-ce-pe.sh ./dist/HelloWorld.exe
 
       - name: Upload phone test artifact
         uses: actions/upload-artifact@v7

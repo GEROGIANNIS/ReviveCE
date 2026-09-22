@@ -5,9 +5,9 @@ $projectPath = Join-Path $repositoryRoot 'revivece\ReviveTLS.vcproj'
 
 $requiredFiles = @(
     '.github\workflows\toolchain-test.yml',
-    'ci\install-toolchain.ps1',
-    'ci\setup-wince-env.cmd',
-    'ci\build-hello.cmd',
+    'ci\validate.sh',
+    'ci\build-hello.sh',
+    'ci\verify-ce-pe.sh',
     'ci\verify-pe.ps1',
     'ci\hello\hello.c'
 )
@@ -20,13 +20,19 @@ foreach ($requiredFile in $requiredFiles) {
 
 $workflow = Get-Content -Raw -LiteralPath `
     (Join-Path $repositoryRoot '.github\workflows\toolchain-test.yml')
-if ($workflow -notmatch 'runs-on:\s*windows-2022') {
-    throw 'Toolchain workflow must pin the windows-2022 runner.'
+if ($workflow -notmatch 'runs-on:\s*ubuntu-22\.04') {
+    throw 'Toolchain workflow must pin the ubuntu-22.04 runner.'
 }
 if ($workflow -match 'windows-latest') {
     throw 'Toolchain workflow must not use a moving windows-latest runner.'
 }
-if ($workflow -notmatch 'verify-pe\.ps1') {
+if ($workflow -notmatch 'windows-ce-build-environment-arm@sha256:[0-9a-f]{64}') {
+    throw 'Toolchain workflow must pin the CeGCC container by digest.'
+}
+if ($workflow -match 'REVIVECE_TOOLCHAIN_ARCHIVE') {
+    throw 'Canonical CI must not require a private toolchain archive.'
+}
+if ($workflow -notmatch 'verify-ce-pe\.sh') {
     throw 'Toolchain workflow does not verify the output PE headers.'
 }
 

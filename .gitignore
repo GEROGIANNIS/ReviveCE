@@ -17,8 +17,6 @@ ARMV4I/
 *.cab
 BuildLog.htm
 
-# CI-generated files. The licensed toolchain must never be committed.
+# CI-generated build output.
 dist/
 obj/
-ci/toolchain-env.cmd
-ci/.toolchain/

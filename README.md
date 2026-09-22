@@ -20,13 +20,14 @@ The program deliberately reports `NOT BUILT` for TLS, certificate, and hostname
 verification. No connection is ever presented as secure until wolfSSL is
 integrated and all three checks pass on physical hardware.
 
-The canonical build machine is GitHub Actions. The first workflow builds only a
-CRT-free ARMV4I HelloWorld and rejects the result unless its PE headers identify
-it as an ARM Windows CE 5.2 GUI program. This proves the legacy toolchain before
-wolfSSL work begins.
+The canonical build machine is GitHub Actions. The first workflow uses a
+digest-pinned, open-source CeGCC 9.3 container to build an ARMV4I HelloWorld and
+rejects the result unless its PE headers identify it as an ARM Windows CE 5.2
+GUI program. This proves the toolchain before wolfSSL work begins. No repository
+secrets or proprietary compiler downloads are required for this proof.
 
 See [docs/BUILDING.md](docs/BUILDING.md) for CI setup and device deployment,
-[ci/README.md](ci/README.md) for the private toolchain archive contract, and
+[ci/README.md](ci/README.md) for the pinned CeGCC toolchain contract, and
 [MVP.md](MVP.md) for the product specification.
 
 ## Layout
@@ -51,7 +52,6 @@ On a Windows development machine, run:
 powershell -ExecutionPolicy Bypass -File .\revivece\tests\validate.ps1
 ```
 
-The repository check needs only PowerShell. ARM binaries are produced by the
-GitHub workflow from a privately supplied, checksum-pinned licensed toolchain.
-The emulator is useful for UI work, but the milestone only passes after testing
-on the HTC Touch Pro itself.
+The repository check needs only PowerShell. ARM binaries are produced inside a
+digest-pinned public build container. The emulator is useful for UI work, but
+the milestone only passes after testing on the HTC Touch Pro itself.
