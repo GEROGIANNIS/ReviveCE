@@ -12,7 +12,7 @@ See `ci/README.md` for the pinned toolchain and source repositories.
 
 Run **WM6 ARMV4I Toolchain Test** manually from the repository's Actions tab.
 It can also run after changes to the workflow or `ci/` scripts. Its downloadable
-artifacts are `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M3-WM6-ARMV4I`.
+artifacts are `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M4-WM6-ARMV4I`.
 
 ## First device test: CI0-CI4
 
@@ -22,7 +22,7 @@ artifacts are `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M3-WM6-ARMV4I`.
 4. Check the included SHA-256.
 5. Copy `HelloWorld.exe` to the HTC Touch Pro and launch it.
 
-After HelloWorld launches, download `ReviveTLS-M3-WM6-ARMV4I`. Copy both
+After HelloWorld launches, download `ReviveTLS-M4-WM6-ARMV4I`. Copy both
 `ReviveTLS.exe` and `google-roots.pem` into the same directory on the phone,
 then run the test over Wi-Fi. wolfSSL is linked statically, so no companion DLL
 is required; the PEM file is ReviveCE's independently updateable trust store.
@@ -50,7 +50,18 @@ If the localized SDK installed on the development machine uses a different
 platform display name, use Visual Studio's Configuration Manager to retarget
 the project to its installed ARMV4I Windows Mobile 6 Professional platform.
 
-## Expected result
+## M4 inbox test
+
+The same executable now also includes the M4 inbox proof. Enter a Gmail address
+and an eligible Gmail **App Password**, then tap **REFRESH INBOX**. The password
+is copied to a worker request, removed from the edit control immediately, and
+zeroed after the encrypted IMAP session ends. It is not saved between runs.
+
+The client accepts only the encrypted, certificate-verified IMAP path and then
+uses `LOGIN`, `SELECT INBOX`, `UID SEARCH ALL`, and header-only `UID FETCH` to
+list the latest 25 messages. A successful operation reports `IMAP ... OK`.
+
+## Expected TLS test result
 
 With Wi-Fi connected, tap **RUN TEST**. This first milestone should report:
 
@@ -86,6 +97,8 @@ payloads.
 - **M3:** TLS 1.2 negotiates with `imap.gmail.com`, its certificate chain and
   hostname verify against the bundled trust store, and an encrypted IMAP
   greeting is received on the physical phone.
+- **M4:** with an eligible Gmail account and App Password, the physical phone
+  displays up to 25 current INBOX headers over that verified TLS session.
 
 An emulator run does not count as device acceptance. All five rows must report
 `OK`; a successful TCP connection alone is not a TLS handshake.

@@ -41,7 +41,7 @@ if ($workflow -notmatch 'verify-ce-pe\.sh') {
 }
 if ($workflow -notmatch 'build-revivetls\.sh' -or
     $workflow -notmatch 'build-wolfssl\.sh' -or
-    $workflow -notmatch 'ReviveTLS-M3-WM6-ARMV4I' -or
+    $workflow -notmatch 'ReviveTLS-M4-WM6-ARMV4I' -or
     $workflow -notmatch 'google-roots\.pem') {
     throw 'Toolchain workflow does not build and upload the ReviveTLS M3 artifact.'
 }
@@ -78,12 +78,27 @@ if ($socketSource -match 'SO_RCVTIMEO|SO_SNDTIMEO') {
 if ($reviveTlsBuild -notmatch 'google-roots\.pem') {
     throw 'ReviveTLS CI build does not package the Google CA bundle.'
 }
+$imapSource = Get-Content -Raw -LiteralPath `
+    (Join-Path $repositoryRoot 'revivece\mail\imap.cpp')
+foreach ($requiredImapControl in @(
+    'ReviveImapFetchInbox',
+    'A001 LOGIN',
+    'A002 SELECT INBOX',
+    'A003 UID SEARCH ALL',
+    'BODY.PEEK[HEADER.FIELDS',
+    'ReviveImapClearCredentials'
+)) {
+    if ($imapSource -notmatch [regex]::Escape($requiredImapControl)) {
+        throw "M4 IMAP control is missing: $requiredImapControl."
+    }
+}
 foreach ($requiredSource in @(
     'app/main.cpp',
     'app/ui.cpp',
     'common/log.cpp',
     'net/socket.cpp',
-    'net/tls.cpp'
+    'net/tls.cpp',
+    'mail/imap.cpp'
 )) {
     if ($reviveTlsBuild -notmatch [regex]::Escape("revivece/$requiredSource")) {
         throw "ReviveTLS CI build omits revivece/$requiredSource."

@@ -903,6 +903,12 @@ Success:
 Touch Pro displays Gmail subjects.
 ```
 
+Current implementation note: the M4 proof uses a Gmail App Password supplied
+for the active refresh only. It is never persisted, logged, or retained by the
+UI after refresh begins. It performs tagged `LOGIN`, `SELECT INBOX`, `UID
+SEARCH ALL`, and header-only `UID FETCH` commands over the verified M3 TLS
+session, keeping the newest 25 UIDs and displaying sender/subject rows.
+
 ---
 
 ## M5 — Message reader

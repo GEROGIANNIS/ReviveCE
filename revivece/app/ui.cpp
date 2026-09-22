@@ -1,3 +1,4 @@
+#include "../mail/imap.h"
 #include "../net/socket.h"
 #include "../net/tls.h"
 #include "ui.h"
@@ -8,26 +9,38 @@
 namespace
 {
 const wchar_t* const kWindowClass = L"ReviveTLSWindow";
-const wchar_t* const kServerDisplay = L"imap.gmail.com:993";
 const char* const kServerHost = "imap.gmail.com";
 const unsigned short kServerPort = 993;
 const DWORD kConnectTimeoutMilliseconds = 15000;
 const wchar_t* const kCABundleFileName = L"google-roots.pem";
 
+enum WorkerMode { WORKER_TLS_TEST = 0, WORKER_INBOX_REFRESH };
+struct WorkerRequest
+{
+    HWND window;
+    WorkerMode mode;
+    ReviveImapCredentials credentials;
+};
+
 HWND g_statusControls[REVIVE_UI_ROW_COUNT];
 HWND g_runButton = NULL;
+HWND g_refreshButton = NULL;
+HWND g_emailEdit = NULL;
+HWND g_passwordEdit = NULL;
+HWND g_inbox = NULL;
 HANDLE g_workerThread = NULL;
+
+void ClearBytes(void* value, unsigned int length)
+{
+    volatile unsigned char* cursor = static_cast<volatile unsigned char*>(value);
+    while (length-- != 0)
+        *cursor++ = 0;
+}
 
 const wchar_t* RowName(ReviveUiRow row)
 {
     static const wchar_t* const names[REVIVE_UI_ROW_COUNT] =
-    {
-        L"DNS",
-        L"TCP",
-        L"TLS 1.2",
-        L"Certificate",
-        L"Hostname"
-    };
+    { L"DNS", L"TCP", L"TLS 1.2", L"Certificate", L"Hostname", L"IMAP" };
     return names[row];
 }
 
@@ -36,23 +49,18 @@ bool BuildCABundlePath(wchar_t* path, DWORD capacity)
     DWORD length;
     DWORD separator = 0;
     DWORD nameLength = 0;
-
     if (path == NULL || capacity == 0)
         return false;
     length = GetModuleFileName(NULL, path, capacity);
     if (length == 0 || length >= capacity)
         return false;
-
     for (DWORD index = 0; index < length; ++index)
-    {
         if (path[index] == L'\\' || path[index] == L'/')
             separator = index + 1;
-    }
     while (kCABundleFileName[nameLength] != L'\0')
         ++nameLength;
     if (separator + nameLength + 1 > capacity)
         return false;
-
     for (DWORD index = 0; index <= nameLength; ++index)
         path[separator + index] = kCABundleFileName[index];
     return true;
@@ -73,10 +81,8 @@ const wchar_t* StateName(ReviveUiState state)
 void SetRow(ReviveUiRow row, ReviveUiState state, int nativeError)
 {
     wchar_t text[96];
-
     if (row < REVIVE_UI_DNS || row >= REVIVE_UI_ROW_COUNT)
         return;
-
     if (nativeError != 0)
         wsprintf(text, L"%s  ..........  %s (%d)", RowName(row),
                  StateName(state), nativeError);
@@ -85,212 +91,271 @@ void SetRow(ReviveUiRow row, ReviveUiState state, int nativeError)
     SetWindowText(g_statusControls[row], text);
 }
 
-void PostStatus(HWND window, ReviveUiRow row,
-                ReviveUiState state, int nativeError)
+void PostStatus(HWND window, ReviveUiRow row, ReviveUiState state, int nativeError)
 {
     ReviveUiStatusMessage* status = static_cast<ReviveUiStatusMessage*>(
-        HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
-                  sizeof(ReviveUiStatusMessage)));
+        HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ReviveUiStatusMessage)));
     if (status == NULL)
         return;
-
     status->row = row;
     status->state = state;
     status->nativeError = nativeError;
-    if (!PostMessage(window, WM_REVIVE_STATUS, 0,
-                     reinterpret_cast<LPARAM>(status)))
+    if (!PostMessage(window, WM_REVIVE_STATUS, 0, reinterpret_cast<LPARAM>(status)))
         HeapFree(GetProcessHeap(), 0, status);
 }
 
-void NetworkProgress(ReviveNetStage stage,
-                     ReviveNetState state,
-                     int nativeError,
-                     void* context)
+void NetworkProgress(ReviveNetStage stage, ReviveNetState state,
+                     int nativeError, void* context)
 {
-    ReviveUiRow row = stage == REVIVE_NET_DNS ? REVIVE_UI_DNS : REVIVE_UI_TCP;
-    ReviveUiState uiState = REVIVE_UI_RUNNING;
+    ReviveUiState uiState = state == REVIVE_NET_SUCCEEDED ? REVIVE_UI_OK :
+                            state == REVIVE_NET_FAILED ? REVIVE_UI_FAILED :
+                            REVIVE_UI_RUNNING;
+    PostStatus(static_cast<HWND>(context), stage == REVIVE_NET_DNS ?
+               REVIVE_UI_DNS : REVIVE_UI_TCP, uiState, nativeError);
+}
 
-    if (state == REVIVE_NET_SUCCEEDED)
-        uiState = REVIVE_UI_OK;
-    else if (state == REVIVE_NET_FAILED)
-        uiState = REVIVE_UI_FAILED;
+void CopyUtf8ToWide(wchar_t* destination, int capacity, const char* source)
+{
+    if (destination == NULL || capacity <= 0)
+        return;
+    destination[0] = L'\0';
+    if (source != NULL && source[0] != '\0')
+        MultiByteToWideChar(CP_UTF8, 0, source, -1, destination, capacity);
+}
 
-    PostStatus(static_cast<HWND>(context), row, uiState, nativeError);
+void PostInboxMessage(HWND window, const ReviveImapMessage* message)
+{
+    ReviveUiInboxMessage* copied = static_cast<ReviveUiInboxMessage*>(
+        HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ReviveUiInboxMessage)));
+    if (copied == NULL)
+        return;
+    copied->unread = message->unread;
+    CopyUtf8ToWide(copied->sender, sizeof(copied->sender) / sizeof(wchar_t), message->sender);
+    CopyUtf8ToWide(copied->subject, sizeof(copied->subject) / sizeof(wchar_t), message->subject);
+    CopyUtf8ToWide(copied->date, sizeof(copied->date) / sizeof(wchar_t), message->date);
+    if (!PostMessage(window, WM_REVIVE_INBOX_MESSAGE, 0, reinterpret_cast<LPARAM>(copied)))
+        HeapFree(GetProcessHeap(), 0, copied);
+}
+
+void PostTlsSuccess(HWND window)
+{
+    PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_OK, 0);
+    PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_OK, 0);
+    PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_OK, 0);
+}
+
+void PostTlsFailure(HWND window, ReviveTlsResult result)
+{
+    PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_FAILED,
+               result == REVIVE_TLS_CERTIFICATE_ERROR || result == REVIVE_TLS_HOSTNAME_ERROR ?
+                   0 : static_cast<int>(result));
+    PostStatus(window, REVIVE_UI_CERTIFICATE,
+               result == REVIVE_TLS_CERTIFICATE_ERROR ? REVIVE_UI_FAILED :
+               result == REVIVE_TLS_HOSTNAME_ERROR ? REVIVE_UI_OK : REVIVE_UI_NOT_RUN, 0);
+    PostStatus(window, REVIVE_UI_HOSTNAME,
+               result == REVIVE_TLS_HOSTNAME_ERROR ? REVIVE_UI_FAILED : REVIVE_UI_NOT_RUN, 0);
 }
 
 DWORD WINAPI NetworkWorker(void* context)
 {
-    HWND window = static_cast<HWND>(context);
+    WorkerRequest* request = static_cast<WorkerRequest*>(context);
+    HWND window = request->window;
     ReviveNetConnection connection;
     ReviveTlsConnection* tlsConnection = NULL;
     wchar_t caBundlePath[MAX_PATH];
-    char greeting[256];
     bool succeeded = false;
-
     const bool connected = ReviveNetConnect(kServerHost, kServerPort,
         kConnectTimeoutMilliseconds, &connection, NetworkProgress, window);
-    if (connected)
+    if (connected && ReviveTLSIsAvailable())
     {
-        if (ReviveTLSIsAvailable())
+        ReviveTlsResult tlsResult = REVIVE_TLS_CONFIGURATION_ERROR;
+        PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_RUNNING, 0);
+        PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_RUNNING, 0);
+        PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_RUNNING, 0);
+        if (BuildCABundlePath(caBundlePath, MAX_PATH))
+            tlsResult = ReviveTLSConnect(&connection, kServerHost, caBundlePath, &tlsConnection);
+        if (tlsResult == REVIVE_TLS_OK)
         {
-            PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_RUNNING, 0);
-            PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_RUNNING, 0);
-            PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_RUNNING, 0);
-
-            ReviveTlsResult tlsResult = REVIVE_TLS_CONFIGURATION_ERROR;
-            if (BuildCABundlePath(caBundlePath, MAX_PATH))
-                tlsResult = ReviveTLSConnect(&connection, kServerHost,
-                                             caBundlePath, &tlsConnection);
-            else
-                ReviveLog("TLS", "CA bundle path construction failed", 0);
-
-            if (tlsResult == REVIVE_TLS_OK)
+            PostTlsSuccess(window);
+            if (request->mode == WORKER_TLS_TEST)
             {
-                PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_OK, 0);
-                PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_OK, 0);
-                PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_OK, 0);
-                const int received = ReviveTLSRead(tlsConnection, greeting,
-                                                   sizeof(greeting));
-                if (received > 0)
+                char greeting[256];
+                if (ReviveTLSRead(tlsConnection, greeting, sizeof(greeting)) > 0)
                 {
                     ReviveLog("IMAP", "encrypted server greeting received", 0);
                     succeeded = true;
                 }
                 else
-                {
                     PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_FAILED, 0);
-                }
-            }
-            else if (tlsResult == REVIVE_TLS_CERTIFICATE_ERROR)
-            {
-                PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_FAILED, 0);
-                PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_FAILED, 0);
-                PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_NOT_RUN, 0);
-            }
-            else if (tlsResult == REVIVE_TLS_HOSTNAME_ERROR)
-            {
-                PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_FAILED, 0);
-                PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_OK, 0);
-                PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_FAILED, 0);
             }
             else
             {
-                PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_FAILED,
-                           static_cast<int>(tlsResult));
-                PostStatus(window, REVIVE_UI_CERTIFICATE,
-                           REVIVE_UI_NOT_RUN, 0);
-                PostStatus(window, REVIVE_UI_HOSTNAME,
-                           REVIVE_UI_NOT_RUN, 0);
+                ReviveImapMessage messages[REVIVE_IMAP_MAX_MESSAGES];
+                int messageCount = 0;
+                PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_RUNNING, 0);
+                const ReviveImapResult imapResult = ReviveImapFetchInbox(
+                    tlsConnection, &request->credentials, messages,
+                    REVIVE_IMAP_MAX_MESSAGES, &messageCount);
+                if (imapResult == REVIVE_IMAP_OK)
+                {
+                    for (int index = 0; index < messageCount; ++index)
+                        PostInboxMessage(window, &messages[index]);
+                    PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_OK, 0);
+                    succeeded = true;
+                }
+                else
+                    PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_FAILED,
+                               static_cast<int>(imapResult));
+                ClearBytes(messages, sizeof(messages));
             }
         }
         else
-        {
-            PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_NOT_BUILT, 0);
-            PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_NOT_BUILT, 0);
-            PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_NOT_BUILT, 0);
-        }
-        ReviveTLSClose(tlsConnection);
-        ReviveNetClose(&connection);
+            PostTlsFailure(window, tlsResult);
     }
-
+    else if (connected)
+    {
+        PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_NOT_BUILT, 0);
+        PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_NOT_BUILT, 0);
+        PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_NOT_BUILT, 0);
+    }
+    if (tlsConnection != NULL)
+        ReviveTLSClose(tlsConnection);
+    if (connected)
+        ReviveNetClose(&connection);
+    ReviveImapClearCredentials(&request->credentials);
+    ClearBytes(request, sizeof(*request));
+    HeapFree(GetProcessHeap(), 0, request);
     PostMessage(window, WM_REVIVE_TEST_COMPLETE, succeeded ? TRUE : FALSE, 0);
     return 0;
 }
 
-void BeginNetworkTest(HWND window)
+void ResetRows()
 {
-    DWORD threadId = 0;
-
-    if (g_workerThread != NULL)
-        return;
-
     SetRow(REVIVE_UI_DNS, REVIVE_UI_NOT_RUN, 0);
     SetRow(REVIVE_UI_TCP, REVIVE_UI_NOT_RUN, 0);
-    SetRow(REVIVE_UI_TLS,
-           ReviveTLSIsAvailable() ? REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT,
-           0);
-    SetRow(REVIVE_UI_CERTIFICATE,
-           ReviveTLSIsAvailable() ? REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT,
-           0);
-    SetRow(REVIVE_UI_HOSTNAME,
-           ReviveTLSIsAvailable() ? REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT,
-           0);
-    EnableWindow(g_runButton, FALSE);
+    SetRow(REVIVE_UI_TLS, ReviveTLSIsAvailable() ? REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT, 0);
+    SetRow(REVIVE_UI_CERTIFICATE, ReviveTLSIsAvailable() ? REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT, 0);
+    SetRow(REVIVE_UI_HOSTNAME, ReviveTLSIsAvailable() ? REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT, 0);
+    SetRow(REVIVE_UI_IMAP, REVIVE_UI_NOT_RUN, 0);
+}
 
-    ReviveLog("APP", "network test started", 0);
-    g_workerThread = CreateThread(NULL, 0, NetworkWorker, window, 0, &threadId);
+bool CopyEditUtf8(HWND edit, char* destination, int capacity)
+{
+    wchar_t wide[REVIVE_IMAP_PASSWORD_CAPACITY];
+    const int copied = GetWindowText(edit, wide, sizeof(wide) / sizeof(wchar_t));
+    bool succeeded = copied > 0 && WideCharToMultiByte(CP_UTF8, 0, wide, -1,
+        destination, capacity, NULL, NULL) != 0;
+    ClearBytes(wide, sizeof(wide));
+    return succeeded;
+}
+
+void BeginWorker(HWND window, WorkerMode mode)
+{
+    DWORD threadId = 0;
+    if (g_workerThread != NULL)
+        return;
+    WorkerRequest* request = static_cast<WorkerRequest*>(HeapAlloc(
+        GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(WorkerRequest)));
+    if (request == NULL)
+        return;
+    request->window = window;
+    request->mode = mode;
+    if (mode == WORKER_INBOX_REFRESH &&
+        (!CopyEditUtf8(g_emailEdit, request->credentials.email, sizeof(request->credentials.email)) ||
+         !CopyEditUtf8(g_passwordEdit, request->credentials.appPassword, sizeof(request->credentials.appPassword))))
+    {
+        ReviveImapClearCredentials(&request->credentials);
+        HeapFree(GetProcessHeap(), 0, request);
+        SetRow(REVIVE_UI_IMAP, REVIVE_UI_FAILED, REVIVE_IMAP_CONFIGURATION_ERROR);
+        return;
+    }
+    if (mode == WORKER_INBOX_REFRESH)
+    {
+        SendMessage(g_inbox, LB_RESETCONTENT, 0, 0);
+        SetWindowText(g_passwordEdit, L"");
+    }
+    ResetRows();
+    EnableWindow(g_runButton, FALSE);
+    EnableWindow(g_refreshButton, FALSE);
+    g_workerThread = CreateThread(NULL, 0, NetworkWorker, request, 0, &threadId);
     if (g_workerThread == NULL)
     {
         const int nativeError = GetLastError();
+        ReviveImapClearCredentials(&request->credentials);
+        HeapFree(GetProcessHeap(), 0, request);
         SetRow(REVIVE_UI_DNS, REVIVE_UI_FAILED, nativeError);
         EnableWindow(g_runButton, TRUE);
-        ReviveLog("APP", "worker thread creation failed", nativeError);
+        EnableWindow(g_refreshButton, TRUE);
     }
+}
+
+void AddInboxMessage(const ReviveUiInboxMessage* message)
+{
+    wchar_t text[512];
+    const wchar_t* sender = message->sender[0] != L'\0' ? message->sender : L"(unknown sender)";
+    const wchar_t* subject = message->subject[0] != L'\0' ? message->subject : L"(no subject)";
+    const wchar_t* date = message->date[0] != L'\0' ? message->date : L"unknown date";
+    wsprintf(text, L"%s%s - %s (%s)", message->unread ? L"* " : L"  ",
+             sender, subject, date);
+    SendMessage(g_inbox, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
 }
 
 void CreateChildControls(HWND window)
 {
     RECT client;
     HFONT font = static_cast<HFONT>(GetStockObject(SYSTEM_FONT));
-    int width;
-    int margin;
-    int top;
-    int rowHeight;
-
     GetClientRect(window, &client);
-    width = client.right - client.left;
-    margin = width / 20;
-    rowHeight = (client.bottom - client.top) / 13;
-    if (rowHeight < 28)
-        rowHeight = 28;
-
-    HWND title = CreateWindow(L"STATIC", L"ReviveTLS Test",
-        WS_CHILD | WS_VISIBLE | SS_CENTER,
-        margin, margin, width - 2 * margin, rowHeight,
-        window, NULL, GetModuleHandle(NULL), NULL);
+    const int width = client.right - client.left;
+    const int margin = width / 20;
+    const int rowHeight = 25;
+    int top = margin;
+    HWND title = CreateWindow(L"STATIC", L"ReviveCE Mail (M4)", WS_CHILD | WS_VISIBLE | SS_CENTER,
+        margin, top, width - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
     SendMessage(title, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-
-    top = margin + rowHeight + margin / 2;
+    top += rowHeight + margin / 2;
     for (int row = 0; row < REVIVE_UI_ROW_COUNT; ++row)
     {
-        g_statusControls[row] = CreateWindow(L"STATIC", L"",
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            margin, top, width - 2 * margin, rowHeight,
-            window, reinterpret_cast<HMENU>(IDC_STATUS_DNS + row),
-            GetModuleHandle(NULL), NULL);
-        SendMessage(g_statusControls[row], WM_SETFONT,
-                    reinterpret_cast<WPARAM>(font), TRUE);
-        SetRow(static_cast<ReviveUiRow>(row),
-               row < REVIVE_UI_TLS ||
-                   (row == REVIVE_UI_TLS && ReviveTLSIsAvailable())
-                       ? REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT,
-               0);
+        g_statusControls[row] = CreateWindow(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT,
+            margin, top, width - 2 * margin, rowHeight, window,
+            reinterpret_cast<HMENU>(IDC_STATUS_DNS + row), GetModuleHandle(NULL), NULL);
+        SendMessage(g_statusControls[row], WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        SetRow(static_cast<ReviveUiRow>(row), ReviveTLSIsAvailable() || row < REVIVE_UI_TLS ?
+               REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT, 0);
         top += rowHeight;
     }
-
-    HWND serverLabel = CreateWindow(L"STATIC", L"Server:",
-        WS_CHILD | WS_VISIBLE | SS_LEFT,
-        margin, top + margin / 2, width - 2 * margin, rowHeight,
-        window, NULL, GetModuleHandle(NULL), NULL);
-    SendMessage(serverLabel, WM_SETFONT,
-                reinterpret_cast<WPARAM>(font), TRUE);
-
+    HWND emailLabel = CreateWindow(L"STATIC", L"Gmail address:", WS_CHILD | WS_VISIBLE,
+        margin, top, width / 3, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+    SendMessage(emailLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    g_emailEdit = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL,
+        margin + width / 3, top, width - (2 * margin + width / 3), rowHeight, window,
+        reinterpret_cast<HMENU>(IDC_EMAIL), GetModuleHandle(NULL), NULL);
+    SendMessage(g_emailEdit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    top += rowHeight + 3;
+    HWND passwordLabel = CreateWindow(L"STATIC", L"App password:", WS_CHILD | WS_VISIBLE,
+        margin, top, width / 3, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+    SendMessage(passwordLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    g_passwordEdit = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_PASSWORD | ES_AUTOHSCROLL,
+        margin + width / 3, top, width - (2 * margin + width / 3), rowHeight, window,
+        reinterpret_cast<HMENU>(IDC_APP_PASSWORD), GetModuleHandle(NULL), NULL);
+    SendMessage(g_passwordEdit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    top += rowHeight + margin / 2;
+    g_runButton = CreateWindow(L"BUTTON", L"TEST TLS", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        margin, top, (width - 3 * margin) / 2, rowHeight + 5, window,
+        reinterpret_cast<HMENU>(IDC_RUN_TEST), GetModuleHandle(NULL), NULL);
+    SendMessage(g_runButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    g_refreshButton = CreateWindow(L"BUTTON", L"REFRESH INBOX", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+        margin + (width - margin) / 2, top, (width - 3 * margin) / 2, rowHeight + 5, window,
+        reinterpret_cast<HMENU>(IDC_REFRESH_INBOX), GetModuleHandle(NULL), NULL);
+    SendMessage(g_refreshButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    top += rowHeight + margin + 5;
+    HWND inboxLabel = CreateWindow(L"STATIC", L"Newest 25 messages (* = unread):", WS_CHILD | WS_VISIBLE,
+        margin, top, width - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+    SendMessage(inboxLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight;
-    HWND serverValue = CreateWindow(L"STATIC", kServerDisplay,
-        WS_CHILD | WS_VISIBLE | SS_LEFT,
-        margin, top + margin / 2, width - 2 * margin, rowHeight,
-        window, NULL, GetModuleHandle(NULL), NULL);
-    SendMessage(serverValue, WM_SETFONT,
-                reinterpret_cast<WPARAM>(font), TRUE);
-
-    top += rowHeight + margin;
-    g_runButton = CreateWindow(L"BUTTON", L"RUN TEST",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
-        margin, top, width - 2 * margin, rowHeight + margin,
-        window, reinterpret_cast<HMENU>(IDC_RUN_TEST),
-        GetModuleHandle(NULL), NULL);
-    SendMessage(g_runButton, WM_SETFONT,
-                reinterpret_cast<WPARAM>(font), TRUE);
+    g_inbox = CreateWindow(L"LISTBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | LBS_NOINTEGRALHEIGHT,
+        margin, top, width - 2 * margin, client.bottom - top - margin, window,
+        reinterpret_cast<HMENU>(IDC_INBOX), GetModuleHandle(NULL), NULL);
+    SendMessage(g_inbox, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 }
 }
 
@@ -310,10 +375,8 @@ ATOM RegisterReviveWindowClass(HINSTANCE instance)
 
 HWND CreateReviveMainWindow(HINSTANCE instance, int showCommand)
 {
-    HWND window = CreateWindow(kWindowClass, L"ReviveTLS",
-        WS_VISIBLE | WS_CAPTION | WS_SYSMENU,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN),
+    HWND window = CreateWindow(kWindowClass, L"ReviveCE Mail", WS_VISIBLE | WS_CAPTION | WS_SYSMENU,
+        CW_USEDEFAULT, CW_USEDEFAULT, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN),
         NULL, NULL, instance, NULL);
     if (window != NULL)
     {
@@ -323,27 +386,20 @@ HWND CreateReviveMainWindow(HINSTANCE instance, int showCommand)
     return window;
 }
 
-LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message,
-                                  WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
-    case WM_CREATE:
-        CreateChildControls(window);
-        return 0;
-
+    case WM_CREATE: CreateChildControls(window); return 0;
     case WM_COMMAND:
         if (LOWORD(wParam) == IDC_RUN_TEST && HIWORD(wParam) == BN_CLICKED)
-        {
-            BeginNetworkTest(window);
-            return 0;
-        }
+        { BeginWorker(window, WORKER_TLS_TEST); return 0; }
+        if (LOWORD(wParam) == IDC_REFRESH_INBOX && HIWORD(wParam) == BN_CLICKED)
+        { BeginWorker(window, WORKER_INBOX_REFRESH); return 0; }
         break;
-
     case WM_REVIVE_STATUS:
     {
-        ReviveUiStatusMessage* status =
-            reinterpret_cast<ReviveUiStatusMessage*>(lParam);
+        ReviveUiStatusMessage* status = reinterpret_cast<ReviveUiStatusMessage*>(lParam);
         if (status != NULL)
         {
             SetRow(status->row, status->state, status->nativeError);
@@ -351,7 +407,16 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message,
         }
         return 0;
     }
-
+    case WM_REVIVE_INBOX_MESSAGE:
+    {
+        ReviveUiInboxMessage* inboxMessage = reinterpret_cast<ReviveUiInboxMessage*>(lParam);
+        if (inboxMessage != NULL)
+        {
+            AddInboxMessage(inboxMessage);
+            HeapFree(GetProcessHeap(), 0, inboxMessage);
+        }
+        return 0;
+    }
     case WM_REVIVE_TEST_COMPLETE:
         if (g_workerThread != NULL)
         {
@@ -359,20 +424,15 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message,
             g_workerThread = NULL;
         }
         EnableWindow(g_runButton, TRUE);
-        SetFocus(g_runButton);
-        ReviveLog("APP", wParam ? "secure TLS test completed"
-                                 : "secure TLS test failed", 0);
+        EnableWindow(g_refreshButton, TRUE);
+        SetFocus(g_refreshButton);
+        ReviveLog("APP", wParam ? "secure operation completed" : "secure operation failed", 0);
         return 0;
-
     case WM_CLOSE:
         if (g_workerThread == NULL)
             DestroyWindow(window);
         return 0;
-
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        return 0;
+    case WM_DESTROY: PostQuitMessage(0); return 0;
     }
-
     return DefWindowProc(window, message, wParam, lParam);
 }

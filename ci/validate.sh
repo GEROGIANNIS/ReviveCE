@@ -29,7 +29,7 @@ grep -Eq 'ghcr\.io/enlyze/windows-ce-build-environment-arm@sha256:[0-9a-f]{64}' 
 grep -q 'verify-ce-pe.sh' "${workflow}"
 grep -q 'build-revivetls.sh' "${workflow}"
 grep -q 'build-wolfssl.sh' "${workflow}"
-grep -q 'ReviveTLS-M3-WM6-ARMV4I' "${workflow}"
+grep -q 'ReviveTLS-M4-WM6-ARMV4I' "${workflow}"
 grep -q 'ac01707f552c611fbd135cc723b2682b3e7f80f2' "${workflow}"
 
 if grep -q 'windows-latest' "${workflow}"; then
@@ -64,7 +64,7 @@ if ! grep -q 'libwolfssl.a' ci/build-revivetls.sh; then
     echo "ERROR: ReviveTLS CI build does not link the pinned wolfSSL library." >&2
     exit 1
 fi
-for required_source in app/main.cpp app/ui.cpp common/log.cpp net/socket.cpp net/tls.cpp; do
+for required_source in app/main.cpp app/ui.cpp common/log.cpp mail/imap.cpp net/socket.cpp net/tls.cpp; do
     if ! grep -q "revivece/${required_source}" ci/build-revivetls.sh; then
         echo "ERROR: ReviveTLS CI build omits revivece/${required_source}." >&2
         exit 1
@@ -72,6 +72,18 @@ for required_source in app/main.cpp app/ui.cpp common/log.cpp net/socket.cpp net
 done
 grep -q 'google-roots.pem' ci/build-revivetls.sh
 grep -q 'google-roots.pem' "${workflow}"
+for required_imap_control in \
+    ReviveImapFetchInbox \
+    'A001 LOGIN' \
+    'A002 SELECT INBOX' \
+    'A003 UID SEARCH ALL' \
+    'BODY.PEEK[HEADER.FIELDS' \
+    ReviveImapClearCredentials; do
+    if ! grep -Fq "${required_imap_control}" revivece/mail/imap.cpp; then
+        echo "ERROR: M4 IMAP control is missing: ${required_imap_control}." >&2
+        exit 1
+    fi
+done
 
 certificate_count=$(grep -c -- '-----BEGIN CERTIFICATE-----' \
     revivece/crypto/certs/google-roots.pem)

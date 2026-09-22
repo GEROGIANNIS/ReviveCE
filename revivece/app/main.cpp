@@ -7,7 +7,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPTSTR, int showCommand)
 {
     MSG message;
 
-    ReviveLog("APP", "ReviveTLS starting", 0);
+    ReviveLog("APP", "ReviveCE Mail M4 starting", 0);
     if (!RegisterReviveWindowClass(instance))
     {
         const DWORD nativeError = GetLastError();
@@ -30,6 +30,6 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPTSTR, int showCommand)
         DispatchMessage(&message);
     }
 
-    ReviveLog("APP", "ReviveTLS stopped", 0);
+    ReviveLog("APP", "ReviveCE Mail stopped", 0);
     return static_cast<int>(message.wParam);
 }

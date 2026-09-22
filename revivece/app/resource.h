@@ -9,9 +9,15 @@
 #define IDC_STATUS_TLS                  1003
 #define IDC_STATUS_CERTIFICATE          1004
 #define IDC_STATUS_HOSTNAME             1005
+#define IDC_STATUS_IMAP                 1006
 #define IDC_RUN_TEST                    1010
+#define IDC_EMAIL                       1011
+#define IDC_APP_PASSWORD                1012
+#define IDC_REFRESH_INBOX               1013
+#define IDC_INBOX                       1014
 
 #define WM_REVIVE_STATUS                (WM_APP + 1)
 #define WM_REVIVE_TEST_COMPLETE         (WM_APP + 2)
+#define WM_REVIVE_INBOX_MESSAGE          (WM_APP + 3)
 
 #endif

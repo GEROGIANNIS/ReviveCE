@@ -24,7 +24,7 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName", "ReviveCE\0"
-            VALUE "FileDescription", "ReviveTLS network proof\0"
+            VALUE "FileDescription", "ReviveCE M4 secure IMAP proof\0"
             VALUE "FileVersion", "0.1.0.0\0"
             VALUE "InternalName", "ReviveTLS\0"
             VALUE "OriginalFilename", "ReviveTLS.exe\0"

@@ -10,6 +10,7 @@ enum ReviveUiRow
     REVIVE_UI_TLS,
     REVIVE_UI_CERTIFICATE,
     REVIVE_UI_HOSTNAME,
+    REVIVE_UI_IMAP,
     REVIVE_UI_ROW_COUNT
 };
 
@@ -27,6 +28,14 @@ struct ReviveUiStatusMessage
     ReviveUiRow row;
     ReviveUiState state;
     int nativeError;
+};
+
+struct ReviveUiInboxMessage
+{
+    bool unread;
+    wchar_t sender[160];
+    wchar_t subject[192];
+    wchar_t date[80];
 };
 
 ATOM RegisterReviveWindowClass(HINSTANCE instance);

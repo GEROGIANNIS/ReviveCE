@@ -6,7 +6,7 @@ Windows Mobile 6.1 Professional on ARMV4I.
 
 ## Current milestone
 
-The repository currently contains the **M0-M3 ReviveTLS proof application**:
+The repository currently contains the **M0-M4 ReviveTLS/IMAP proof application**:
 
 - a native Win32/Windows CE user interface sized for a 480 x 640 device;
 - a worker-thread network test so DNS timeouts do not freeze the UI;
@@ -22,9 +22,14 @@ The repository currently contains the **M0-M3 ReviveTLS proof application**:
   roots, without weakening peer verification;
 - Google's maintained 21-certificate service trust bundle, shipped beside the
   executable rather than using Windows Mobile's obsolete certificate store;
-- a required encrypted IMAP greeting before the test reports success.
+- a required encrypted IMAP greeting before the TLS test reports success;
+- a Gmail App Password form held only for the current refresh, never written
+  to the log or settings;
+- tagged IMAP `LOGIN`, `SELECT INBOX`, `UID SEARCH`, and header-only `UID
+  FETCH` commands for the newest 25 messages, including sender, subject,
+  date, and unread state.
 
-The M3 build reports TLS, certificate, and hostname status separately. Any
+The M4 build reports TLS, certificate, hostname, and IMAP status separately. Any
 missing bundle, failed handshake, invalid chain, hostname mismatch, or missing
 server greeting rejects the connection; plaintext fallback is never attempted.
 
