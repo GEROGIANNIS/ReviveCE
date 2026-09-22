@@ -8,6 +8,7 @@ namespace
 {
 const int kReadBufferCapacity = 512;
 const int kLineCapacity = 2048;
+const int kRawMessageCapacity = 32768;
 
 struct ImapReader
 {
@@ -416,48 +417,28 @@ ReviveImapResult ReadFetchCompletion(ImapReader* reader, const char* tag,
         }
     }
 }
-}
 
-void ReviveImapClearCredentials(ReviveImapCredentials* credentials)
+ReviveImapResult InitializeAuthenticatedInbox(ImapReader* reader,
+                                              ReviveTlsConnection* connection,
+                                              const ReviveImapCredentials* credentials)
 {
-    if (credentials != NULL)
-        ClearBytes(credentials, sizeof(*credentials));
-}
-
-ReviveImapResult ReviveImapFetchInbox(ReviveTlsConnection* connection,
-                                      const ReviveImapCredentials* credentials,
-                                      ReviveImapMessage* messages,
-                                      int capacity,
-                                      int* messageCount)
-{
-    ImapReader reader;
     char command[768];
     char line[kLineCapacity];
-    unsigned long uids[REVIVE_IMAP_MAX_MESSAGES];
-    int commandLength;
-    int uidCount = 0;
-    int index;
+    int commandLength = 0;
     bool tooLarge;
     ReviveImapResult result;
 
-    if (messageCount != NULL)
-        *messageCount = 0;
-    if (connection == NULL || credentials == NULL || messages == NULL ||
-        messageCount == NULL || capacity <= 0 ||
-        capacity > REVIVE_IMAP_MAX_MESSAGES || credentials->email[0] == '\0' ||
-        credentials->appPassword[0] == '\0')
-        return REVIVE_IMAP_CONFIGURATION_ERROR;
-
-    reader.connection = connection;
-    reader.offset = 0;
-    reader.length = 0;
-    if (!ReadLine(&reader, line, sizeof(line), &tooLarge))
+    reader->connection = connection;
+    reader->offset = 0;
+    reader->length = 0;
+    if (!ReadLine(reader, line, sizeof(line), &tooLarge))
         return tooLarge ? REVIVE_IMAP_RESPONSE_TOO_LARGE : REVIVE_IMAP_IO_ERROR;
+    if (tooLarge)
+        return REVIVE_IMAP_RESPONSE_TOO_LARGE;
     if (!StartsWith(line, "* OK"))
         return REVIVE_IMAP_GREETING_ERROR;
     ReviveLog("IMAP", "encrypted server greeting accepted", 0);
 
-    commandLength = 0;
     command[0] = '\0';
     if (!AppendText(command, sizeof(command), &commandLength, "A001 LOGIN ") ||
         !AppendQuoted(command, sizeof(command), &commandLength, credentials->email) ||
@@ -475,17 +456,441 @@ ReviveImapResult ReviveImapFetchInbox(ReviveTlsConnection* connection,
         return REVIVE_IMAP_IO_ERROR;
     }
     ClearBytes(command, sizeof(command));
-    result = ReadTaggedCompletion(&reader, "A001", REVIVE_IMAP_AUTHENTICATION_ERROR);
+    result = ReadTaggedCompletion(reader, "A001", REVIVE_IMAP_AUTHENTICATION_ERROR);
     if (result != REVIVE_IMAP_OK)
         return result;
     ReviveLog("IMAP", "authenticated with app password", 0);
 
     if (!WriteAll(connection, "A002 SELECT INBOX\r\n"))
         return REVIVE_IMAP_IO_ERROR;
-    result = ReadTaggedCompletion(&reader, "A002", REVIVE_IMAP_SELECT_ERROR);
+    result = ReadTaggedCompletion(reader, "A002", REVIVE_IMAP_SELECT_ERROR);
+    if (result == REVIVE_IMAP_OK)
+        ReviveLog("IMAP", "INBOX selected", 0);
+    return result;
+}
+
+bool ParseLiteralLength(const char* line, unsigned long* length)
+{
+    const char* opening = NULL;
+    const char* cursor;
+    unsigned long value = 0;
+    bool hasDigit = false;
+    if (line == NULL || length == NULL)
+        return false;
+    for (cursor = line; *cursor != '\0'; ++cursor)
+        if (*cursor == '{')
+            opening = cursor;
+    if (opening == NULL)
+        return false;
+    for (cursor = opening + 1; *cursor >= '0' && *cursor <= '9'; ++cursor)
+    {
+        hasDigit = true;
+        value = value * 10 + static_cast<unsigned long>(*cursor - '0');
+    }
+    if (!hasDigit || *cursor != '}')
+        return false;
+    *length = value;
+    return true;
+}
+
+bool ReadExact(ImapReader* reader, char* destination, unsigned long length)
+{
+    unsigned long copied = 0;
+    while (copied < length)
+    {
+        char value;
+        if (!ReadByte(reader, &value))
+            return false;
+        destination[copied++] = value;
+    }
+    return true;
+}
+
+const char* FindHeader(const char* headers, const char* name)
+{
+    const char* line = headers;
+    int nameLength = 0;
+    while (name[nameLength] != '\0')
+        ++nameLength;
+    while (line != NULL && *line != '\0')
+    {
+        const char* colon = line;
+        while (*colon != '\0' && *colon != ':' && *colon != '\r' && *colon != '\n')
+            ++colon;
+        if (*colon == ':' && EqualsIgnoreCase(line, name, static_cast<int>(colon - line)))
+        {
+            const char* value = colon + 1;
+            while (IsAsciiSpace(*value))
+                ++value;
+            return value;
+        }
+        line = strstr(line, "\n");
+        if (line != NULL)
+            ++line;
+    }
+    return NULL;
+}
+
+void CopyHeaderValue(const char* headers, const char* name,
+                     char* destination, int capacity)
+{
+    const char* value = FindHeader(headers, name);
+    if (value == NULL)
+    {
+        if (destination != NULL && capacity > 0)
+            destination[0] = '\0';
+        return;
+    }
+    CopyValue(destination, capacity, value);
+}
+
+int HexValue(char value)
+{
+    if (value >= '0' && value <= '9')
+        return value - '0';
+    if (value >= 'a' && value <= 'f')
+        return value - 'a' + 10;
+    if (value >= 'A' && value <= 'F')
+        return value - 'A' + 10;
+    return -1;
+}
+
+int Base64Value(char value)
+{
+    if (value >= 'A' && value <= 'Z') return value - 'A';
+    if (value >= 'a' && value <= 'z') return value - 'a' + 26;
+    if (value >= '0' && value <= '9') return value - '0' + 52;
+    if (value == '+') return 62;
+    if (value == '/') return 63;
+    return -1;
+}
+
+bool DecodeContent(const char* source, int length, const char* transferEncoding,
+                   char* destination, int capacity)
+{
+    int input = 0;
+    int output = 0;
+    if (destination == NULL || capacity < 1)
+        return false;
+    destination[0] = '\0';
+    if (source == NULL || length < 0)
+        return false;
+    if (transferEncoding != NULL && Contains(transferEncoding, "base64"))
+    {
+        int bits = 0;
+        int bitCount = 0;
+        for (; input < length; ++input)
+        {
+            const int value = Base64Value(source[input]);
+            if (value < 0)
+                continue;
+            bits = (bits << 6) | value;
+            bitCount += 6;
+            if (bitCount >= 8)
+            {
+                bitCount -= 8;
+                if (output >= capacity - 1)
+                    return false;
+                destination[output++] = static_cast<char>((bits >> bitCount) & 0xff);
+            }
+        }
+    }
+    else
+    {
+        const bool quotedPrintable = transferEncoding != NULL &&
+                                     Contains(transferEncoding, "quoted-printable");
+        while (input < length)
+        {
+            char value = source[input++];
+            if (quotedPrintable && value == '=' && input + 1 < length)
+            {
+                if (source[input] == '\r' && source[input + 1] == '\n')
+                {
+                    input += 2;
+                    continue;
+                }
+                const int high = HexValue(source[input]);
+                const int low = HexValue(source[input + 1]);
+                if (high >= 0 && low >= 0)
+                {
+                    value = static_cast<char>((high << 4) | low);
+                    input += 2;
+                }
+            }
+            if (output >= capacity - 1)
+                return false;
+            destination[output++] = value;
+        }
+    }
+    destination[output] = '\0';
+    return true;
+}
+
+bool HtmlToText(const char* html, char* text, int capacity)
+{
+    int input = 0;
+    int output = 0;
+    bool inTag = false;
+    if (html == NULL || text == NULL || capacity < 1)
+        return false;
+    while (html[input] != '\0')
+    {
+        if (html[input] == '<')
+        {
+            if (StartsWith(html + input, "<br") || StartsWith(html + input, "<BR") ||
+                StartsWith(html + input, "</p") || StartsWith(html + input, "</P"))
+            {
+                if (output < capacity - 1 && (output == 0 || text[output - 1] != '\n'))
+                    text[output++] = '\n';
+            }
+            inTag = true;
+        }
+        else if (html[input] == '>')
+            inTag = false;
+        else if (!inTag)
+        {
+            char value = html[input];
+            if (html[input] == '&')
+            {
+                if (StartsWith(html + input, "&amp;")) { value = '&'; input += 4; }
+                else if (StartsWith(html + input, "&lt;")) { value = '<'; input += 3; }
+                else if (StartsWith(html + input, "&gt;")) { value = '>'; input += 3; }
+                else if (StartsWith(html + input, "&quot;")) { value = '"'; input += 5; }
+            }
+            if (output >= capacity - 1)
+                return false;
+            text[output++] = value;
+        }
+        ++input;
+    }
+    text[output] = '\0';
+    return true;
+}
+
+bool ExtractBoundary(const char* contentType, char* boundary, int capacity)
+{
+    const char* value = FindText(contentType, "boundary=");
+    int output = 0;
+    char quote = '\0';
+    if (value == NULL || boundary == NULL || capacity < 2)
+        return false;
+    value += 9;
+    if (*value == '"' || *value == '\'')
+        quote = *value++;
+    while (*value != '\0' && output < capacity - 1)
+    {
+        if ((quote != '\0' && *value == quote) ||
+            (quote == '\0' && (IsAsciiSpace(*value) || *value == ';' || *value == '\r')))
+            break;
+        boundary[output++] = *value++;
+    }
+    boundary[output] = '\0';
+    return output != 0;
+}
+
+bool DecodeCandidate(const char* headers, const char* content, int contentLength,
+                     char* body, int capacity, bool html)
+{
+    char transfer[80];
+    char decoded[REVIVE_IMAP_BODY_CAPACITY];
+    CopyHeaderValue(headers, "Content-Transfer-Encoding", transfer, sizeof(transfer));
+    if (!DecodeContent(content, contentLength, transfer, decoded, sizeof(decoded)))
+        return false;
+    if (html)
+    {
+        const bool converted = HtmlToText(decoded, body, capacity);
+        ClearBytes(decoded, sizeof(decoded));
+        return converted;
+    }
+    int length = 0;
+    while (decoded[length] != '\0')
+    {
+        if (length >= capacity - 1)
+        {
+            ClearBytes(decoded, sizeof(decoded));
+            return false;
+        }
+        body[length] = decoded[length];
+        ++length;
+    }
+    body[length] = '\0';
+    ClearBytes(decoded, sizeof(decoded));
+    return true;
+}
+
+bool ExtractMessageText(char* raw, ReviveImapMessage* header,
+                        char* body, int bodyCapacity, bool* usedHtmlFallback)
+{
+    char* bodyStart;
+    char contentType[256];
+    char boundary[160];
+    if (raw == NULL || header == NULL || body == NULL || usedHtmlFallback == NULL)
+        return false;
+    *usedHtmlFallback = false;
+    ClearBytes(header, sizeof(*header));
+    body[0] = '\0';
+    bodyStart = strstr(raw, "\r\n\r\n");
+    if (bodyStart == NULL)
+        bodyStart = strstr(raw, "\n\n");
+    if (bodyStart == NULL)
+        return false;
+    if (bodyStart[0] == '\r')
+    {
+        bodyStart[0] = '\0';
+        bodyStart += 4;
+    }
+    else
+    {
+        bodyStart[0] = '\0';
+        bodyStart += 2;
+    }
+    CopyHeaderValue(raw, "From", header->sender, sizeof(header->sender));
+    CopyHeaderValue(raw, "Subject", header->subject, sizeof(header->subject));
+    CopyHeaderValue(raw, "Date", header->date, sizeof(header->date));
+    CopyHeaderValue(raw, "Content-Type", contentType, sizeof(contentType));
+
+    if (!Contains(contentType, "multipart/") || !ExtractBoundary(contentType, boundary, sizeof(boundary)))
+    {
+        const bool html = Contains(contentType, "text/html");
+        if (!DecodeCandidate(raw, bodyStart, static_cast<int>(strlen(bodyStart)), body,
+                             bodyCapacity, html))
+            return false;
+        *usedHtmlFallback = html;
+        return true;
+    }
+
+    char marker[170];
+    int markerLength = 0;
+    if (!AppendText(marker, sizeof(marker), &markerLength, "--") ||
+        !AppendText(marker, sizeof(marker), &markerLength, boundary))
+        return false;
+    char* part = strstr(bodyStart, marker);
+    char* htmlHeaders = NULL;
+    char* htmlContent = NULL;
+    int htmlLength = 0;
+    while (part != NULL)
+    {
+        char* next;
+        char* partHeaders;
+        char* partContent;
+        char partType[256];
+        part += markerLength;
+        if (StartsWith(part, "--"))
+            break;
+        if (StartsWith(part, "\r\n")) part += 2;
+        else if (*part == '\n') ++part;
+        partHeaders = part;
+        partContent = strstr(partHeaders, "\r\n\r\n");
+        if (partContent == NULL)
+            partContent = strstr(partHeaders, "\n\n");
+        if (partContent == NULL)
+            break;
+        if (partContent[0] == '\r')
+        {
+            partContent[0] = '\0';
+            partContent += 4;
+        }
+        else
+        {
+            partContent[0] = '\0';
+            partContent += 2;
+        }
+        next = strstr(partContent, marker);
+        if (next == NULL)
+            break;
+        CopyHeaderValue(partHeaders, "Content-Type", partType, sizeof(partType));
+        if (Contains(partType, "text/plain"))
+            return DecodeCandidate(partHeaders, partContent,
+                                   static_cast<int>(next - partContent), body,
+                                   bodyCapacity, false);
+        if (Contains(partType, "text/html") && htmlHeaders == NULL)
+        {
+            htmlHeaders = partHeaders;
+            htmlContent = partContent;
+            htmlLength = static_cast<int>(next - partContent);
+        }
+        part = next;
+    }
+    if (htmlHeaders != NULL && DecodeCandidate(htmlHeaders, htmlContent, htmlLength,
+                                                body, bodyCapacity, true))
+    {
+        *usedHtmlFallback = true;
+        return true;
+    }
+    return false;
+}
+
+ReviveImapResult ReadMessageFetchCompletion(ImapReader* reader, const char* tag,
+                                            ReviveImapMessage* header, char* body,
+                                            int bodyCapacity, bool* usedHtmlFallback)
+{
+    char line[kLineCapacity];
+    char raw[kRawMessageCapacity];
+    bool tooLarge;
+    bool succeeded;
+    bool receivedLiteral = false;
+    for (;;)
+    {
+        unsigned long literalLength;
+        if (!ReadLine(reader, line, sizeof(line), &tooLarge))
+            return tooLarge ? REVIVE_IMAP_RESPONSE_TOO_LARGE : REVIVE_IMAP_IO_ERROR;
+        if (tooLarge)
+            return REVIVE_IMAP_RESPONSE_TOO_LARGE;
+        if (IsTaggedCompletion(line, tag, &succeeded))
+        {
+            if (!succeeded)
+                return REVIVE_IMAP_FETCH_ERROR;
+            return receivedLiteral ? REVIVE_IMAP_OK : REVIVE_IMAP_FETCH_ERROR;
+        }
+        if (!ParseLiteralLength(line, &literalLength))
+            continue;
+        if (literalLength >= static_cast<unsigned long>(sizeof(raw)))
+            return REVIVE_IMAP_BODY_TOO_LARGE;
+        if (!ReadExact(reader, raw, literalLength))
+            return REVIVE_IMAP_IO_ERROR;
+        raw[literalLength] = '\0';
+        if (!ExtractMessageText(raw, header, body, bodyCapacity, usedHtmlFallback))
+        {
+            ClearBytes(raw, sizeof(raw));
+            return REVIVE_IMAP_UNSUPPORTED_MESSAGE;
+        }
+        ClearBytes(raw, sizeof(raw));
+        receivedLiteral = true;
+    }
+}
+}
+
+void ReviveImapClearCredentials(ReviveImapCredentials* credentials)
+{
+    if (credentials != NULL)
+        ClearBytes(credentials, sizeof(*credentials));
+}
+
+ReviveImapResult ReviveImapFetchInbox(ReviveTlsConnection* connection,
+                                      const ReviveImapCredentials* credentials,
+                                      ReviveImapMessage* messages,
+                                      int capacity,
+                                      int* messageCount)
+{
+    ImapReader reader;
+    char command[768];
+    unsigned long uids[REVIVE_IMAP_MAX_MESSAGES];
+    int commandLength;
+    int uidCount = 0;
+    int index;
+    ReviveImapResult result;
+
+    if (messageCount != NULL)
+        *messageCount = 0;
+    if (connection == NULL || credentials == NULL || messages == NULL ||
+        messageCount == NULL || capacity <= 0 ||
+        capacity > REVIVE_IMAP_MAX_MESSAGES || credentials->email[0] == '\0' ||
+        credentials->appPassword[0] == '\0')
+        return REVIVE_IMAP_CONFIGURATION_ERROR;
+
+    result = InitializeAuthenticatedInbox(&reader, connection, credentials);
     if (result != REVIVE_IMAP_OK)
         return result;
-    ReviveLog("IMAP", "INBOX selected", 0);
 
     if (!WriteAll(connection, "A003 UID SEARCH ALL\r\n"))
         return REVIVE_IMAP_IO_ERROR;
@@ -523,5 +928,48 @@ ReviveImapResult ReviveImapFetchInbox(ReviveTlsConnection* connection,
     ClearBytes(command, sizeof(command));
     if (result == REVIVE_IMAP_OK)
         ReviveLog("IMAP", "inbox headers received", *messageCount);
+    return result;
+}
+
+ReviveImapResult ReviveImapFetchMessage(ReviveTlsConnection* connection,
+                                        const ReviveImapCredentials* credentials,
+                                        unsigned long uid,
+                                        ReviveImapMessage* header,
+                                        char* body,
+                                        int bodyCapacity,
+                                        bool* usedHtmlFallback)
+{
+    ImapReader reader;
+    char command[160];
+    int commandLength = 0;
+    ReviveImapResult result;
+
+    if (connection == NULL || credentials == NULL || header == NULL ||
+        body == NULL || bodyCapacity < 2 || usedHtmlFallback == NULL ||
+        uid == 0 || credentials->email[0] == '\0' ||
+        credentials->appPassword[0] == '\0')
+        return REVIVE_IMAP_CONFIGURATION_ERROR;
+
+    body[0] = '\0';
+    *usedHtmlFallback = false;
+    result = InitializeAuthenticatedInbox(&reader, connection, credentials);
+    if (result != REVIVE_IMAP_OK)
+        return result;
+
+    command[0] = '\0';
+    if (!AppendText(command, sizeof(command), &commandLength, "A003 UID FETCH ") ||
+        !AppendUnsigned(command, sizeof(command), &commandLength, uid) ||
+        !AppendText(command, sizeof(command), &commandLength, " (UID BODY.PEEK[])\r\n"))
+        return REVIVE_IMAP_CONFIGURATION_ERROR;
+    if (!WriteAll(connection, command))
+        return REVIVE_IMAP_IO_ERROR;
+    result = ReadMessageFetchCompletion(&reader, "A003", header, body,
+                                        bodyCapacity, usedHtmlFallback);
+    ClearBytes(command, sizeof(command));
+    if (result == REVIVE_IMAP_OK)
+    {
+        header->uid = uid;
+        ReviveLog("IMAP", "message text received", 0);
+    }
     return result;
 }

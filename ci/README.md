@@ -36,7 +36,7 @@ Run **WM6 ARMV4I Toolchain Test** from the Actions tab. A successful run:
    M3 `ReviveTLS.exe` application and its reviewed Google CA bundle;
 5. parses both binary PE headers and requires ARM machine `0x01c0`, PE32,
    Windows CE GUI subsystem `9`, and subsystem version `5.2`;
-6. uploads `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M4-WM6-ARMV4I`; the latter
+6. uploads `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M5-WM6-ARMV4I`; the latter
    contains the executable, its SHA-256 checksum, and `google-roots.pem`.
 
 CI0-CI3 pass when the artifact is uploaded. CI4 passes only after the downloaded

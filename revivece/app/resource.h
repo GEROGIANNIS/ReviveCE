@@ -15,9 +15,11 @@
 #define IDC_APP_PASSWORD                1012
 #define IDC_REFRESH_INBOX               1013
 #define IDC_INBOX                       1014
+#define IDC_OPEN_MESSAGE                 1015
 
 #define WM_REVIVE_STATUS                (WM_APP + 1)
 #define WM_REVIVE_TEST_COMPLETE         (WM_APP + 2)
 #define WM_REVIVE_INBOX_MESSAGE          (WM_APP + 3)
+#define WM_REVIVE_MESSAGE_BODY            (WM_APP + 4)
 
 #endif

@@ -41,9 +41,9 @@ if ($workflow -notmatch 'verify-ce-pe\.sh') {
 }
 if ($workflow -notmatch 'build-revivetls\.sh' -or
     $workflow -notmatch 'build-wolfssl\.sh' -or
-    $workflow -notmatch 'ReviveTLS-M4-WM6-ARMV4I' -or
+    $workflow -notmatch 'ReviveTLS-M5-WM6-ARMV4I' -or
     $workflow -notmatch 'google-roots\.pem') {
-    throw 'Toolchain workflow does not build and upload the ReviveTLS M3 artifact.'
+    throw 'Toolchain workflow does not build and upload the ReviveTLS M5 artifact.'
 }
 if ($workflow -notmatch 'ac01707f552c611fbd135cc723b2682b3e7f80f2') {
     throw 'wolfSSL dependency is not pinned to the reviewed 5.9.2 release commit.'
@@ -90,6 +90,18 @@ foreach ($requiredImapControl in @(
 )) {
     if ($imapSource -notmatch [regex]::Escape($requiredImapControl)) {
         throw "M4 IMAP control is missing: $requiredImapControl."
+    }
+}
+$messageSource = $imapSource
+foreach ($requiredMessageControl in @(
+    'ReviveImapFetchMessage',
+    'A003 UID FETCH',
+    'BODY.PEEK[]',
+    'multipart/',
+    'text/plain'
+)) {
+    if ($messageSource -notmatch [regex]::Escape($requiredMessageControl)) {
+        throw "M5 message control is missing: $requiredMessageControl."
     }
 }
 foreach ($requiredSource in @(

@@ -30,7 +30,7 @@ sources=(
     "${repository_root}/revivece/net/tls.cpp"
 )
 
-echo "Compiling ReviveTLS M3 for Windows CE ARM..."
+echo "Compiling ReviveTLS M5 for Windows CE ARM..."
 "${compiler}" \
     -std=gnu++98 \
     -Os \

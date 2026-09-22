@@ -1,6 +1,8 @@
 #ifndef REVIVECE_UI_H
 #define REVIVECE_UI_H
 
+#include "../mail/imap.h"
+
 #include <windows.h>
 
 enum ReviveUiRow
@@ -32,10 +34,20 @@ struct ReviveUiStatusMessage
 
 struct ReviveUiInboxMessage
 {
+    unsigned long uid;
     bool unread;
     wchar_t sender[160];
     wchar_t subject[192];
     wchar_t date[80];
+};
+
+struct ReviveUiMessageBody
+{
+    wchar_t sender[160];
+    wchar_t subject[192];
+    wchar_t date[80];
+    wchar_t body[REVIVE_IMAP_BODY_CAPACITY];
+    bool usedHtmlFallback;
 };
 
 ATOM RegisterReviveWindowClass(HINSTANCE instance);

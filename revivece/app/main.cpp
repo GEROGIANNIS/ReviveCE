@@ -1,5 +1,3 @@
-#include <windows.h>
-
 #include "ui.h"
 #include "../common/log.h"
 
@@ -7,7 +5,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPTSTR, int showCommand)
 {
     MSG message;
 
-    ReviveLog("APP", "ReviveCE Mail M4 starting", 0);
+    ReviveLog("APP", "ReviveCE Mail M5 starting", 0);
     if (!RegisterReviveWindowClass(instance))
     {
         const DWORD nativeError = GetLastError();

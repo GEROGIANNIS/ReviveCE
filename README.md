@@ -6,7 +6,7 @@ Windows Mobile 6.1 Professional on ARMV4I.
 
 ## Current milestone
 
-The repository currently contains the **M0-M4 ReviveTLS/IMAP proof application**:
+The repository currently contains the **M0-M5 ReviveTLS/IMAP proof application**:
 
 - a native Win32/Windows CE user interface sized for a 480 x 640 device;
 - a worker-thread network test so DNS timeouts do not freeze the UI;
@@ -28,20 +28,40 @@ The repository currently contains the **M0-M4 ReviveTLS/IMAP proof application**
 - tagged IMAP `LOGIN`, `SELECT INBOX`, `UID SEARCH`, and header-only `UID
   FETCH` commands for the newest 25 messages, including sender, subject,
   date, and unread state.
+- selectable inbox rows and a scrollable message reader that fetches a selected
+  message over a new verified IMAP session;
+- a compact MIME reader for ordinary plain-text mail, multipart mail with a
+  preferred `text/plain` part, and basic HTML-to-text fallback. Attachments are
+  neither downloaded nor saved.
 
-The M4 build reports TLS, certificate, hostname, and IMAP status separately. Any
+The M5 build reports TLS, certificate, hostname, and IMAP status separately. Any
 missing bundle, failed handshake, invalid chain, hostname mismatch, or missing
 server greeting rejects the connection; plaintext fallback is never attempted.
 
 The canonical build machine is GitHub Actions. The workflow uses a
 digest-pinned, open-source CeGCC 9.3 container to build both the proven ARM
-HelloWorld smoke test and the M3 `ReviveTLS.exe`. It rejects either result
+HelloWorld smoke test and the M5 `ReviveTLS.exe`. It rejects either result
 unless its PE headers identify it as an ARM Windows CE 5.2 GUI program. No
 repository secrets or proprietary compiler downloads are required.
 
 See [docs/BUILDING.md](docs/BUILDING.md) for CI setup and device deployment,
 [ci/README.md](ci/README.md) for the pinned CeGCC toolchain contract, and
 [MVP.md](MVP.md) for the product specification.
+
+## What the app shows on the phone
+
+`ReviveCE Mail` opens with separate DNS, TCP, TLS 1.2, Certificate, Hostname,
+and IMAP status rows, followed by Gmail address and App Password inputs.
+`TEST TLS` proves the encrypted connection without logging in. `REFRESH INBOX`
+authenticates with the App Password, clears that edit field, and fills the list
+with up to 25 recent messages. Each row shows a `*` when unread, plus sender,
+subject, and date.
+
+Select a row and tap `OPEN` (or double-tap it) to fetch the chosen message.
+The full-screen reader shows its sender, subject, date, and a scrollable
+plain-text body. When only HTML is available, the reader labels its simplified
+text conversion. The App Password is never written to logs or disk; it remains
+only in memory until ReviveCE closes so selected messages can be opened.
 
 ## Layout
 

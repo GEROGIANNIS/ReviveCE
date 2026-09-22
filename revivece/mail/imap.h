@@ -12,6 +12,7 @@ enum
     REVIVE_IMAP_SENDER_CAPACITY = 160,
     REVIVE_IMAP_SUBJECT_CAPACITY = 192,
     REVIVE_IMAP_DATE_CAPACITY = 80,
+    REVIVE_IMAP_BODY_CAPACITY = 8192,
     REVIVE_IMAP_MAX_MESSAGES = 25
 };
 
@@ -25,7 +26,9 @@ enum ReviveImapResult
     REVIVE_IMAP_SELECT_ERROR,
     REVIVE_IMAP_SEARCH_ERROR,
     REVIVE_IMAP_FETCH_ERROR,
-    REVIVE_IMAP_RESPONSE_TOO_LARGE
+    REVIVE_IMAP_RESPONSE_TOO_LARGE,
+    REVIVE_IMAP_BODY_TOO_LARGE,
+    REVIVE_IMAP_UNSUPPORTED_MESSAGE
 };
 
 struct ReviveImapCredentials
@@ -52,6 +55,18 @@ ReviveImapResult ReviveImapFetchInbox(ReviveTlsConnection* connection,
                                       ReviveImapMessage* messages,
                                       int capacity,
                                       int* messageCount);
+
+// Fetches one selected INBOX message over a fresh, verified IMAP session.
+// The initial M5 parser accepts ordinary single-part text messages and the
+// first text/plain part of a multipart message; text/html is reduced to text
+// only when no text/plain part is available. Attachments are never saved.
+ReviveImapResult ReviveImapFetchMessage(ReviveTlsConnection* connection,
+                                        const ReviveImapCredentials* credentials,
+                                        unsigned long uid,
+                                        ReviveImapMessage* header,
+                                        char* body,
+                                        int bodyCapacity,
+                                        bool* usedHtmlFallback);
 
 void ReviveImapClearCredentials(ReviveImapCredentials* credentials);
 

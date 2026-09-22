@@ -29,7 +29,7 @@ grep -Eq 'ghcr\.io/enlyze/windows-ce-build-environment-arm@sha256:[0-9a-f]{64}' 
 grep -q 'verify-ce-pe.sh' "${workflow}"
 grep -q 'build-revivetls.sh' "${workflow}"
 grep -q 'build-wolfssl.sh' "${workflow}"
-grep -q 'ReviveTLS-M4-WM6-ARMV4I' "${workflow}"
+grep -q 'ReviveTLS-M5-WM6-ARMV4I' "${workflow}"
 grep -q 'ac01707f552c611fbd135cc723b2682b3e7f80f2' "${workflow}"
 
 if grep -q 'windows-latest' "${workflow}"; then
@@ -81,6 +81,17 @@ for required_imap_control in \
     ReviveImapClearCredentials; do
     if ! grep -Fq "${required_imap_control}" revivece/mail/imap.cpp; then
         echo "ERROR: M4 IMAP control is missing: ${required_imap_control}." >&2
+        exit 1
+    fi
+done
+for required_message_control in \
+    ReviveImapFetchMessage \
+    'A003 UID FETCH' \
+    'BODY.PEEK[]' \
+    'multipart/' \
+    'text/plain'; do
+    if ! grep -Fq "${required_message_control}" revivece/mail/imap.cpp; then
+        echo "ERROR: M5 message control is missing: ${required_message_control}." >&2
         exit 1
     fi
 done
