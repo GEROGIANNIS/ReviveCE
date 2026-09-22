@@ -36,6 +36,12 @@ if ($workflow -notmatch 'verify-ce-pe\.sh') {
     throw 'Toolchain workflow does not verify the output PE headers.'
 }
 
+$helloBuild = Get-Content -Raw -LiteralPath `
+    (Join-Path $repositoryRoot 'ci\build-hello.sh')
+if ($helloBuild -match '-mwindows') {
+    throw "CeGCC for Windows CE does not support desktop MinGW's -mwindows flag."
+}
+
 [xml]$project = Get-Content -Raw -LiteralPath $projectPath
 if ($project.VisualStudioProject.Version -ne '9.00') {
     throw 'ReviveTLS.vcproj is not a Visual Studio 2008 project.'

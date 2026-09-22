@@ -17,7 +17,6 @@ echo "Compiling HelloWorld for Windows CE ARM..."
     -Wextra \
     -march=armv4t \
     -mthumb-interwork \
-    -mwindows \
     -D_WIN32_WCE=0x0502 \
     -DUNDER_CE \
     -DWINCE \

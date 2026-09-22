@@ -32,6 +32,10 @@ if grep -q 'REVIVECE_TOOLCHAIN_ARCHIVE' "${workflow}"; then
     echo "ERROR: Canonical CI must not require a private toolchain archive." >&2
     exit 1
 fi
+if grep -q -- '-mwindows' ci/build-hello.sh; then
+    echo "ERROR: CeGCC for Windows CE does not support desktop MinGW's -mwindows flag." >&2
+    exit 1
+fi
 
 source_files=$(find revivece -path 'revivece/tests' -prune -o \
     \( -name '*.cpp' -o -name '*.h' \) -type f -print)
