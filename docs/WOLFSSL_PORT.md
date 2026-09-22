@@ -18,6 +18,9 @@ For M2/M3:
 4. Supply WinCE-compatible time, entropy, filesystem, and socket adapters where
    the selected release needs them. Entropy must fail closed if a secure source
    cannot be obtained.
+   CeGCC also requires wolfSSL's explicit ARM alignment hints to be capped at
+   8 bytes, `time_t` to be included explicitly, and `NOMINMAX` to be set before
+   the Windows CE headers.
 5. Load the bundled CA data into the wolfSSL context. Do not read the Windows
    Mobile root store.
 6. Set peer verification, SNI, and `wolfSSL_check_domain_name()` before

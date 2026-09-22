@@ -89,11 +89,19 @@ foreach ($requiredSetting in @(
     'HAVE_SUPPORTED_CURVES',
     'HAVE_AESGCM',
     'HAVE_ECC',
-    'WC_RSA_BLINDING'
+    'WC_RSA_BLINDING',
+    'NOMINMAX',
+    'WOLFSSL_GENERAL_ALIGNMENT'
 )) {
     if ($wolfSslSettings -notmatch [regex]::Escape($requiredSetting)) {
         throw "wolfSSL security setting is missing: $requiredSetting."
     }
+}
+if ($wolfSslSettings -notmatch '#define ALIGN64\s+WOLFSSL_ALIGN\(8\)') {
+    throw 'wolfSSL alignment must be capped for CeGCC PE/COFF output.'
+}
+if ($wolfSslSettings -notmatch '#include <time\.h>') {
+    throw 'wolfSSL Windows CE build must expose time_t through time.h.'
 }
 
 [xml]$project = Get-Content -Raw -LiteralPath $projectPath

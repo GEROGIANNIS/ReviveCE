@@ -75,12 +75,22 @@ for required_setting in \
     HAVE_SUPPORTED_CURVES \
     HAVE_AESGCM \
     HAVE_ECC \
-    WC_RSA_BLINDING; do
+    WC_RSA_BLINDING \
+    NOMINMAX \
+    WOLFSSL_GENERAL_ALIGNMENT; do
     if ! grep -q "${required_setting}" "${wolfssl_settings}"; then
         echo "ERROR: wolfSSL security setting is missing: ${required_setting}." >&2
         exit 1
     fi
 done
+if ! grep -Eq '^#define ALIGN64[[:space:]]+WOLFSSL_ALIGN\(8\)' "${wolfssl_settings}"; then
+    echo "ERROR: wolfSSL alignment must be capped for CeGCC PE/COFF output." >&2
+    exit 1
+fi
+if ! grep -q '#include <time.h>' "${wolfssl_settings}"; then
+    echo "ERROR: wolfSSL Windows CE build must expose time_t through time.h." >&2
+    exit 1
+fi
 
 source_files=$(find revivece -path 'revivece/tests' -prune -o \
     \( -name '*.cpp' -o -name '*.h' \) -type f -print)

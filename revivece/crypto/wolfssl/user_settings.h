@@ -1,6 +1,20 @@
 #ifndef REVIVECE_WOLFSSL_USER_SETTINGS_H
 #define REVIVECE_WOLFSSL_USER_SETTINGS_H
 
+/* CeGCC's PE/COFF writer supports at most 8-byte object alignment. wolfSSL
+ * enables explicit alignment on pre-ARMv6 targets, so cap every larger hint. */
+#define ALIGN16  WOLFSSL_ALIGN(8)
+#define ALIGN32  WOLFSSL_ALIGN(8)
+#define ALIGN64  WOLFSSL_ALIGN(8)
+#define ALIGN128 WOLFSSL_ALIGN(8)
+#define ALIGN256 WOLFSSL_ALIGN(8)
+#define WOLFSSL_GENERAL_ALIGNMENT 8
+
+/* WinCE headers otherwise define function-like min/max macros, which collide
+ * with wolfCrypt's constant-time helpers. wc_port.h also needs time_t visible. */
+#define NOMINMAX
+#include <time.h>
+
 /* ReviveCE is a TLS 1.2 client. All transport I/O is supplied by revive_net. */
 #define WOLFSSL_USER_IO
 #define NO_WOLFSSL_SERVER
