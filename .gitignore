@@ -1,0 +1,24 @@
+# Visual Studio 2008 / Windows Mobile build output
+Debug/
+Release/
+ARMV4I/
+*.aps
+*.ncb
+*.suo
+*.user
+*.sdf
+*.opensdf
+*.obj
+*.pdb
+*.idb
+*.ilk
+*.exe
+*.dll
+*.cab
+BuildLog.htm
+
+# CI-generated files. The licensed toolchain must never be committed.
+dist/
+obj/
+ci/toolchain-env.cmd
+ci/.toolchain/

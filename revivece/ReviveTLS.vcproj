@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="Windows-1252"?>
+<VisualStudioProject
+	ProjectType="Visual C++"
+	Version="9.00"
+	Name="ReviveTLS"
+	ProjectGUID="{6AF29703-D6D3-46B6-9277-21AB4C0BFC91}"
+	RootNamespace="ReviveTLS"
+	Keyword="Win32Proj"
+	TargetFrameworkVersion="0"
+	>
+	<Platforms>
+		<Platform Name="Windows Mobile 6 Professional SDK (ARMV4I)"/>
+	</Platforms>
+	<ToolFiles>
+	</ToolFiles>
+	<Configurations>
+		<Configuration
+			Name="Debug|Windows Mobile 6 Professional SDK (ARMV4I)"
+			OutputDirectory="$(PlatformName)\$(ConfigurationName)"
+			IntermediateDirectory="$(PlatformName)\$(ConfigurationName)"
+			ConfigurationType="1"
+			CharacterSet="1"
+			>
+			<Tool Name="VCPreBuildEventTool"/>
+			<Tool Name="VCCustomBuildTool"/>
+			<Tool Name="VCXMLDataGeneratorTool"/>
+			<Tool Name="VCWebServiceProxyGeneratorTool"/>
+			<Tool Name="VCMIDLTool"/>
+			<Tool
+				Name="VCCLCompilerTool"
+				Optimization="0"
+				AdditionalIncludeDirectories="."
+				PreprocessorDefinitions="_DEBUG;_WIN32_WCE=$(CEVER);UNDER_CE;WINCE;DEBUG;_WINDOWS;$(ARCHFAM);$(_ARCHFAM_);UNICODE;_UNICODE"
+				MinimalRebuild="false"
+				RuntimeLibrary="3"
+				UsePrecompiledHeader="0"
+				WarningLevel="4"
+				DebugInformationFormat="3"
+			/>
+			<Tool Name="VCManagedResourceCompilerTool"/>
+			<Tool Name="VCResourceCompilerTool"/>
+			<Tool Name="VCPreLinkEventTool"/>
+			<Tool
+				Name="VCLinkerTool"
+				AdditionalDependencies="ws2.lib"
+				OutputFile="$(OutDir)\ReviveTLS.exe"
+				LinkIncremental="2"
+				GenerateDebugInformation="true"
+				SubSystem="9"
+				StackReserveSize="65536"
+				EntryPointSymbol="WinMainCRTStartup"
+			/>
+			<Tool Name="VCALinkTool"/>
+			<Tool Name="VCPostBuildEventTool"/>
+			<Tool Name="VCDeploymentTool" RemoteDirectory="%CSIDL_PROGRAM_FILES%\ReviveCE"/>
+			<Tool Name="VCDebuggerTool"/>
+		</Configuration>
+		<Configuration
+			Name="Release|Windows Mobile 6 Professional SDK (ARMV4I)"
+			OutputDirectory="$(PlatformName)\$(ConfigurationName)"
+			IntermediateDirectory="$(PlatformName)\$(ConfigurationName)"
+			ConfigurationType="1"
+			CharacterSet="1"
+			WholeProgramOptimization="1"
+			>
+			<Tool Name="VCPreBuildEventTool"/>
+			<Tool Name="VCCustomBuildTool"/>
+			<Tool Name="VCXMLDataGeneratorTool"/>
+			<Tool Name="VCWebServiceProxyGeneratorTool"/>
+			<Tool Name="VCMIDLTool"/>
+			<Tool
+				Name="VCCLCompilerTool"
+				Optimization="2"
+				EnableIntrinsicFunctions="true"
+				AdditionalIncludeDirectories="."
+				PreprocessorDefinitions="NDEBUG;_WIN32_WCE=$(CEVER);UNDER_CE;WINCE;_WINDOWS;$(ARCHFAM);$(_ARCHFAM_);UNICODE;_UNICODE"
+				RuntimeLibrary="2"
+				EnableFunctionLevelLinking="true"
+				UsePrecompiledHeader="0"
+				WarningLevel="4"
+				DebugInformationFormat="3"
+			/>
+			<Tool Name="VCManagedResourceCompilerTool"/>
+			<Tool Name="VCResourceCompilerTool"/>
+			<Tool Name="VCPreLinkEventTool"/>
+			<Tool
+				Name="VCLinkerTool"
+				AdditionalDependencies="ws2.lib"
+				OutputFile="$(OutDir)\ReviveTLS.exe"
+				LinkIncremental="1"
+				GenerateDebugInformation="true"
+				SubSystem="9"
+				OptimizeReferences="2"
+				EnableCOMDATFolding="2"
+				StackReserveSize="65536"
+				EntryPointSymbol="WinMainCRTStartup"
+			/>
+			<Tool Name="VCALinkTool"/>
+			<Tool Name="VCPostBuildEventTool"/>
+			<Tool Name="VCDeploymentTool" RemoteDirectory="%CSIDL_PROGRAM_FILES%\ReviveCE"/>
+			<Tool Name="VCDebuggerTool"/>
+		</Configuration>
+	</Configurations>
+	<References>
+	</References>
+	<Files>
+		<Filter Name="Source Files" Filter="cpp;c;cxx;cc;def;odl;idl;hpj;bat;asm;asmx">
+			<File RelativePath=".\app\main.cpp"/>
+			<File RelativePath=".\app\ui.cpp"/>
+			<File RelativePath=".\common\log.cpp"/>
+			<File RelativePath=".\net\socket.cpp"/>
+			<File RelativePath=".\net\tls.cpp"/>
+		</Filter>
+		<Filter Name="Header Files" Filter="h;hpp;hxx;hm;inl;inc;xsd">
+			<File RelativePath=".\app\resource.h"/>
+			<File RelativePath=".\app\ui.h"/>
+			<File RelativePath=".\common\log.h"/>
+			<File RelativePath=".\net\socket.h"/>
+			<File RelativePath=".\net\tls.h"/>
+		</Filter>
+		<Filter Name="Resource Files" Filter="rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx">
+			<File RelativePath=".\app\resource.rc"/>
+		</Filter>
+	</Files>
+	<Globals>
+	</Globals>
+</VisualStudioProject>
