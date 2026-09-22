@@ -37,6 +37,11 @@
 #define HAVE_ENCRYPT_THEN_MAC
 #define HAVE_SERVER_RENEGOTIATION_INFO
 
+/* Google may append a cross-signed root for legacy clients. Validate the peer
+ * to our trusted self-signed root without requiring every trailing certificate
+ * presented by the server to form the selected path. */
+#define WOLFSSL_ALT_CERT_CHAINS
+
 /* General-purpose constant-time math for RSA and ECC certificate chains. */
 #define WOLFSSL_SP_MATH_ALL
 #define WOLFSSL_SP_SMALL

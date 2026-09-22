@@ -8,6 +8,12 @@ peer verification and SNI, checks the requested hostname, and fails closed.
 The callbacks bound reads and writes with `select()`; Windows CE 5.2 returns
 `WSAENOPROTOOPT` for the desktop Winsock `SO_RCVTIMEO`/`SO_SNDTIMEO` options.
 
+`WOLFSSL_ALT_CERT_CHAINS` is required for Google compatibility. Gmail currently
+presents `leaf -> WR2 -> GTS Root R1 cross-sign`, while the trust bundle holds
+the self-signed GTS Root R1. Alternate-chain mode lets wolfSSL select the valid
+path from WR2 to that trusted root instead of rejecting the extra cross-signed
+certificate with `ASN_NO_SIGNER_E`. It does not disable peer verification.
+
 For M3:
 
 1. Keep wolfSSL pinned to a reviewed full release commit rather than tracking

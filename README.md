@@ -18,6 +18,8 @@ The repository currently contains the **M0-M3 ReviveTLS proof application**:
 - custom wolfSSL I/O over Winsock with `select()`-based deadlines compatible
   with Windows CE 5.2;
 - SNI, certificate-chain verification, and hostname verification;
+- alternate-chain validation for Google's appended cross-signed compatibility
+  roots, without weakening peer verification;
 - Google's maintained 21-certificate service trust bundle, shipped beside the
   executable rather than using Windows Mobile's obsolete certificate store;
 - a required encrypted IMAP greeting before the test reports success.

@@ -98,6 +98,7 @@ foreach ($requiredSetting in @(
     'NO_OLD_TLS',
     'HAVE_SNI',
     'HAVE_SUPPORTED_CURVES',
+    'WOLFSSL_ALT_CERT_CHAINS',
     'HAVE_AESGCM',
     'HAVE_ECC',
     'WC_RSA_BLINDING',
