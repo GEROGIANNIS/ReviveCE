@@ -41,6 +41,9 @@ $helloBuild = Get-Content -Raw -LiteralPath `
 if ($helloBuild -match '-mwindows') {
     throw "CeGCC for Windows CE does not support desktop MinGW's -mwindows flag."
 }
+if ($helloBuild -notmatch '-Wl,--subsystem,9:5\.2') {
+    throw 'CeGCC build must select Windows CE GUI subsystem 9, version 5.2.'
+}
 
 [xml]$project = Get-Content -Raw -LiteralPath $projectPath
 if ($project.VisualStudioProject.Version -ne '9.00') {

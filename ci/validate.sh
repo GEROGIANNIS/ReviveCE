@@ -36,6 +36,10 @@ if grep -q -- '-mwindows' ci/build-hello.sh; then
     echo "ERROR: CeGCC for Windows CE does not support desktop MinGW's -mwindows flag." >&2
     exit 1
 fi
+if ! grep -q -- '-Wl,--subsystem,9:5.2' ci/build-hello.sh; then
+    echo "ERROR: CeGCC build must select Windows CE GUI subsystem 9, version 5.2." >&2
+    exit 1
+fi
 
 source_files=$(find revivece -path 'revivece/tests' -prune -o \
     \( -name '*.cpp' -o -name '*.h' \) -type f -print)

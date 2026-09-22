@@ -26,7 +26,7 @@ echo "Compiling HelloWorld for Windows CE ARM..."
     -ffunction-sections \
     -fdata-sections \
     -Wl,--gc-sections \
-    -Wl,--subsystem,windowsce:5.02 \
+    -Wl,--subsystem,9:5.2 \
     -s \
     -o "${output_file}" \
     "${source_file}"
