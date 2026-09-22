@@ -188,6 +188,35 @@ bool IsCertificateError(int error)
     }
 }
 
+void WolfSslLogCallback(const int logLevel, const char* const logMessage)
+{
+    (void)logLevel;
+    if (logMessage != NULL)
+        ReviveLog("WOLF", logMessage, 0);
+}
+
+int DiagnosticVerifyCallback(int preverify, WOLFSSL_X509_STORE_CTX* store)
+{
+    int depth = -1;
+    int error = 0;
+    if (store != NULL)
+    {
+        depth = store->error_depth;
+        error = store->error;
+    }
+    if (preverify)
+        ReviveLog("TLS", "cert verified at chain depth", depth);
+    else
+    {
+        ReviveLog("TLS", "cert REJECTED at chain depth", depth);
+        ReviveLog("TLS", "verify error at depth", error);
+        const char* errorName = wc_GetErrorString(error);
+        if (errorName != NULL)
+            ReviveLog("TLS", errorName, error);
+    }
+    return preverify;
+}
+
 void DestroyConnection(ReviveTlsConnection* connection)
 {
     if (connection == NULL)
@@ -266,6 +295,9 @@ ReviveTlsResult ReviveTLSConnect(ReviveNetConnection* network,
     }
     connection->wolfSslInitialized = true;
 
+    wolfSSL_SetLoggingCb(WolfSslLogCallback);
+    wolfSSL_Debugging_ON();
+
     connection->context = wolfSSL_CTX_new(wolfTLSv1_2_client_method());
     if (connection->context == NULL)
     {
@@ -274,7 +306,8 @@ ReviveTlsResult ReviveTLSConnect(ReviveNetConnection* network,
         return REVIVE_TLS_CONFIGURATION_ERROR;
     }
 
-    wolfSSL_CTX_set_verify(connection->context, WOLFSSL_VERIFY_PEER, NULL);
+    wolfSSL_CTX_set_verify(connection->context, WOLFSSL_VERIFY_PEER,
+                           DiagnosticVerifyCallback);
     if (wolfSSL_CTX_set_cipher_list(connection->context,
                                     kSecureCipherList) != WOLFSSL_SUCCESS)
     {
