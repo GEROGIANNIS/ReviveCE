@@ -43,10 +43,13 @@ struct ReviveUiInboxMessage
 
 struct ReviveUiMessageBody
 {
+    unsigned long uid;
+    unsigned long displayedBytes;
+    bool hasMore;
     wchar_t sender[160];
     wchar_t subject[192];
     wchar_t date[80];
-    wchar_t body[REVIVE_IMAP_BODY_CAPACITY];
+    wchar_t body[REVIVE_IMAP_BODY_CAPACITY + 2];
     bool usedHtmlFallback;
 };
 

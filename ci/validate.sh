@@ -89,7 +89,8 @@ for required_message_control in \
     'A003 UID FETCH' \
     'BODY.PEEK[TEXT]' \
     'BODY.PEEK[1.MIME]' \
-    ReadSectionFetchCompletion; do
+    ReadSectionFetchCompletion \
+    REVIVE_IMAP_INITIAL_BODY_BYTES; do
     if ! grep -Fq "${required_message_control}" revivece/mail/imap.cpp; then
         echo "ERROR: M5 message control is missing: ${required_message_control}." >&2
         exit 1

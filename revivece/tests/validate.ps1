@@ -98,7 +98,8 @@ foreach ($requiredMessageControl in @(
     'A003 UID FETCH',
     'BODY.PEEK[TEXT]',
     'BODY.PEEK[1.MIME]',
-    'ReadSectionFetchCompletion'
+    'ReadSectionFetchCompletion',
+    'REVIVE_IMAP_INITIAL_BODY_BYTES'
 )) {
     if ($messageSource -notmatch [regex]::Escape($requiredMessageControl)) {
         throw "M5 message control is missing: $requiredMessageControl."

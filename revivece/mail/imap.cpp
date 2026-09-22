@@ -692,30 +692,42 @@ bool DecodeCandidate(const char* headers, const char* content, int contentLength
                      char* body, int capacity, bool html)
 {
     char transfer[80];
-    char decoded[REVIVE_IMAP_BODY_CAPACITY];
-    CopyHeaderValue(headers, "Content-Transfer-Encoding", transfer, sizeof(transfer));
-    if (!DecodeContent(content, contentLength, transfer, decoded, sizeof(decoded)))
-        return false;
-    if (html)
-    {
-        const bool converted = HtmlToText(decoded, body, capacity);
-        ClearBytes(decoded, sizeof(decoded));
-        return converted;
-    }
+    char* decoded;
+    bool succeeded = false;
     int length = 0;
-    while (decoded[length] != '\0')
+    if (capacity < 2)
+        return false;
+    decoded = static_cast<char*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+                                           capacity));
+    if (decoded == NULL)
+        return false;
+    CopyHeaderValue(headers, "Content-Transfer-Encoding", transfer, sizeof(transfer));
+    if (!DecodeContent(content, contentLength, transfer, decoded, capacity))
     {
-        if (length >= capacity - 1)
-        {
-            ClearBytes(decoded, sizeof(decoded));
-            return false;
-        }
-        body[length] = decoded[length];
-        ++length;
+        ClearBytes(decoded, capacity);
+        HeapFree(GetProcessHeap(), 0, decoded);
+        return false;
     }
-    body[length] = '\0';
-    ClearBytes(decoded, sizeof(decoded));
-    return true;
+    if (html)
+        succeeded = HtmlToText(decoded, body, capacity);
+    else
+    {
+        while (decoded[length] != '\0')
+        {
+            if (length >= capacity - 1)
+                break;
+            body[length] = decoded[length];
+            ++length;
+        }
+        if (decoded[length] == '\0')
+        {
+            body[length] = '\0';
+            succeeded = true;
+        }
+    }
+    ClearBytes(decoded, capacity);
+    HeapFree(GetProcessHeap(), 0, decoded);
+    return succeeded;
 }
 
 bool ExtractMessageText(char* raw, ReviveImapMessage* header,
@@ -862,13 +874,16 @@ ReviveImapResult ReadMessageFetchCompletion(ImapReader* reader, const char* tag,
 ReviveImapResult ReadSectionFetchCompletion(ImapReader* reader, const char* tag,
                                             char* headers, int headerCapacity,
                                             char* content, int contentCapacity,
-                                            bool captureMimeHeaders)
+                                            bool captureMimeHeaders,
+                                            unsigned long* contentLength)
 {
     char line[kLineCapacity];
     bool tooLarge;
     bool succeeded;
     bool receivedContent = false;
     bool receivedHeader = false;
+    if (contentLength != NULL)
+        *contentLength = 0;
     if (headers != NULL && headerCapacity > 0)
         headers[0] = '\0';
     if (content != NULL && contentCapacity > 0)
@@ -907,6 +922,8 @@ ReviveImapResult ReadSectionFetchCompletion(ImapReader* reader, const char* tag,
         if (!ReadExact(reader, destination, literalLength))
             return REVIVE_IMAP_IO_ERROR;
         destination[literalLength] = '\0';
+        if (destination == content && contentLength != NULL)
+            *contentLength = literalLength;
     }
 }
 }
@@ -985,27 +1002,36 @@ ReviveImapResult ReviveImapFetchInbox(ReviveTlsConnection* connection,
 ReviveImapResult ReviveImapFetchMessage(ReviveTlsConnection* connection,
                                         const ReviveImapCredentials* credentials,
                                         unsigned long uid,
+                                        unsigned long requestedBodyBytes,
                                         ReviveImapMessage* header,
                                         char* body,
                                         int bodyCapacity,
-                                        bool* usedHtmlFallback)
+                                        bool* usedHtmlFallback,
+                                        bool* hasMore)
 {
     ImapReader reader;
     char command[256];
     char messageHeaders[4096];
     char partHeaders[4096];
     char contentType[256];
+    unsigned long literalBytes = 0;
+    unsigned long requestedWireBytes;
     int commandLength = 0;
     ReviveImapResult result;
 
     if (connection == NULL || credentials == NULL || header == NULL ||
         body == NULL || bodyCapacity < 2 || usedHtmlFallback == NULL ||
+        hasMore == NULL || requestedBodyBytes == 0 ||
+        requestedBodyBytes > REVIVE_IMAP_BODY_CAPACITY ||
+        bodyCapacity < static_cast<int>(requestedBodyBytes + 2) ||
         uid == 0 || credentials->email[0] == '\0' ||
         credentials->appPassword[0] == '\0')
         return REVIVE_IMAP_CONFIGURATION_ERROR;
 
     body[0] = '\0';
     *usedHtmlFallback = false;
+    *hasMore = false;
+    requestedWireBytes = requestedBodyBytes + 1;
     result = InitializeAuthenticatedInbox(&reader, connection, credentials);
     if (result != REVIVE_IMAP_OK)
         return result;
@@ -1019,7 +1045,7 @@ ReviveImapResult ReviveImapFetchMessage(ReviveTlsConnection* connection,
     if (!WriteAll(connection, command))
         return REVIVE_IMAP_IO_ERROR;
     result = ReadSectionFetchCompletion(&reader, "A003", messageHeaders,
-                                        sizeof(messageHeaders), NULL, 0, false);
+                                        sizeof(messageHeaders), NULL, 0, false, NULL);
     if (result != REVIVE_IMAP_OK)
     {
         ClearBytes(command, sizeof(command));
@@ -1045,7 +1071,10 @@ ReviveImapResult ReviveImapFetchMessage(ReviveTlsConnection* connection,
     if (multipart)
     {
         if (!AppendText(command, sizeof(command), &commandLength,
-                        " (BODY.PEEK[1.MIME] BODY.PEEK[1])\r\n"))
+                        " (BODY.PEEK[1.MIME] BODY.PEEK[1]<0.") ||
+            !AppendUnsigned(command, sizeof(command), &commandLength,
+                            requestedWireBytes) ||
+            !AppendText(command, sizeof(command), &commandLength, ">)\r\n"))
         {
             ClearBytes(command, sizeof(command));
             ClearBytes(messageHeaders, sizeof(messageHeaders));
@@ -1053,7 +1082,10 @@ ReviveImapResult ReviveImapFetchMessage(ReviveTlsConnection* connection,
         }
     }
     else if (!AppendText(command, sizeof(command), &commandLength,
-                         " (BODY.PEEK[TEXT])\r\n"))
+                         " (BODY.PEEK[TEXT]<0.") ||
+             !AppendUnsigned(command, sizeof(command), &commandLength,
+                             requestedWireBytes) ||
+             !AppendText(command, sizeof(command), &commandLength, ">)\r\n"))
     {
         ClearBytes(command, sizeof(command));
         ClearBytes(messageHeaders, sizeof(messageHeaders));
@@ -1067,7 +1099,7 @@ ReviveImapResult ReviveImapFetchMessage(ReviveTlsConnection* connection,
     }
     result = ReadSectionFetchCompletion(&reader, "A004", partHeaders,
                                         sizeof(partHeaders), body, bodyCapacity,
-                                        multipart);
+                                        multipart, &literalBytes);
     ClearBytes(command, sizeof(command));
     if (result == REVIVE_IMAP_OK)
     {
@@ -1080,6 +1112,7 @@ ReviveImapResult ReviveImapFetchMessage(ReviveTlsConnection* connection,
         if (!DecodeCandidate(partTypeHeaders, body, static_cast<int>(strlen(body)),
                              body, bodyCapacity, *usedHtmlFallback))
             result = REVIVE_IMAP_UNSUPPORTED_MESSAGE;
+        *hasMore = literalBytes > requestedBodyBytes;
         ClearBytes(selectedContentType, sizeof(selectedContentType));
         header->uid = uid;
         if (result == REVIVE_IMAP_OK)

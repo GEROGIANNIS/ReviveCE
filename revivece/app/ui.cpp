@@ -10,6 +10,7 @@ namespace
 {
 const wchar_t* const kWindowClass = L"ReviveTLSWindow";
 const wchar_t* const kReaderWindowClass = L"ReviveCEReaderWindow";
+const int kReaderLoadMoreControl = 2001;
 const char* const kServerHost = "imap.gmail.com";
 const unsigned short kServerPort = 993;
 const DWORD kConnectTimeoutMilliseconds = 15000;
@@ -21,6 +22,7 @@ struct WorkerRequest
     HWND window;
     WorkerMode mode;
     unsigned long uid;
+    unsigned long bodyBytes;
     ReviveImapCredentials credentials;
 };
 
@@ -33,6 +35,13 @@ HWND g_passwordEdit = NULL;
 HWND g_inbox = NULL;
 HANDLE g_workerThread = NULL;
 HWND g_readerWindow = NULL;
+HWND g_readerBody = NULL;
+HWND g_readerDetail = NULL;
+HWND g_readerLoadMore = NULL;
+HWND g_mainWindow = NULL;
+unsigned long g_readerUid = 0;
+unsigned long g_readerDisplayedBytes = 0;
+bool g_readerHasMore = false;
 ReviveImapCredentials g_sessionCredentials;
 bool g_inboxCanOpen = false;
 
@@ -166,12 +175,16 @@ void PostInboxMessage(HWND window, const ReviveImapMessage* message)
 }
 
 void PostMessageBody(HWND window, const ReviveImapMessage* message,
-                     const char* body, bool usedHtmlFallback)
+                     const char* body, bool usedHtmlFallback,
+                     unsigned long displayedBytes, bool hasMore)
 {
     ReviveUiMessageBody* copied = static_cast<ReviveUiMessageBody*>(
         HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ReviveUiMessageBody)));
     if (copied == NULL)
         return;
+    copied->uid = message->uid;
+    copied->displayedBytes = displayedBytes;
+    copied->hasMore = hasMore;
     CopyUtf8ToWide(copied->sender, sizeof(copied->sender) / sizeof(wchar_t), message->sender);
     CopyUtf8ToWide(copied->subject, sizeof(copied->subject) / sizeof(wchar_t), message->subject);
     CopyUtf8ToWide(copied->date, sizeof(copied->date) / sizeof(wchar_t), message->date);
@@ -259,23 +272,37 @@ DWORD WINAPI NetworkWorker(void* context)
             else
             {
                 ReviveImapMessage header;
-                char body[REVIVE_IMAP_BODY_CAPACITY];
+                char* body = static_cast<char*>(HeapAlloc(GetProcessHeap(),
+                    HEAP_ZERO_MEMORY, request->bodyBytes + 2));
                 bool usedHtmlFallback = false;
                 PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_RUNNING, 0);
-                const ReviveImapResult imapResult = ReviveImapFetchMessage(
-                    tlsConnection, &request->credentials, request->uid, &header,
-                    body, sizeof(body), &usedHtmlFallback);
+                ReviveImapResult imapResult = REVIVE_IMAP_CONFIGURATION_ERROR;
+                bool hasMore = false;
+                if (body != NULL)
+                    imapResult = ReviveImapFetchMessage(tlsConnection,
+                        &request->credentials, request->uid, request->bodyBytes,
+                        &header, body, static_cast<int>(request->bodyBytes + 2),
+                        &usedHtmlFallback, &hasMore);
                 if (imapResult == REVIVE_IMAP_OK)
                 {
-                    PostMessageBody(window, &header, body, usedHtmlFallback);
+                    PostMessageBody(window, &header, body, usedHtmlFallback,
+                                    request->bodyBytes, hasMore);
                     PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_OK, 0);
                     succeeded = true;
                 }
                 else
+                {
+                    ReviveLog("IMAP", "message fetch failed",
+                              static_cast<int>(imapResult));
                     PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_FAILED,
                                static_cast<int>(imapResult));
+                }
                 ClearBytes(&header, sizeof(header));
-                ClearBytes(body, sizeof(body));
+                if (body != NULL)
+                {
+                    ClearBytes(body, request->bodyBytes + 2);
+                    HeapFree(GetProcessHeap(), 0, body);
+                }
             }
         }
         else
@@ -318,7 +345,8 @@ bool CopyEditUtf8(HWND edit, char* destination, int capacity)
     return succeeded;
 }
 
-void BeginWorker(HWND window, WorkerMode mode, unsigned long uid)
+void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
+                 unsigned long bodyBytes)
 {
     DWORD threadId = 0;
     if (g_workerThread != NULL)
@@ -330,6 +358,7 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid)
     request->window = window;
     request->mode = mode;
     request->uid = uid;
+    request->bodyBytes = bodyBytes;
     if (mode == WORKER_INBOX_REFRESH &&
         (!CopyEditUtf8(g_emailEdit, request->credentials.email, sizeof(request->credentials.email)) ||
          !CopyEditUtf8(g_passwordEdit, request->credentials.appPassword, sizeof(request->credentials.appPassword))))
@@ -344,7 +373,9 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid)
                    sizeof(g_sessionCredentials));
     if (mode == WORKER_MESSAGE_FETCH)
     {
-        if (uid == 0 || g_sessionCredentials.email[0] == '\0' ||
+        if (uid == 0 || bodyBytes == 0 ||
+            bodyBytes > REVIVE_IMAP_BODY_CAPACITY ||
+            g_sessionCredentials.email[0] == '\0' ||
             g_sessionCredentials.appPassword[0] == '\0')
         {
             HeapFree(GetProcessHeap(), 0, request);
@@ -375,6 +406,8 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid)
         EnableWindow(g_runButton, TRUE);
         EnableWindow(g_refreshButton, TRUE);
         EnableWindow(g_openButton, g_inboxCanOpen ? TRUE : FALSE);
+        if (g_readerLoadMore != NULL)
+            EnableWindow(g_readerLoadMore, g_readerHasMore ? TRUE : FALSE);
     }
 }
 
@@ -392,7 +425,8 @@ void OpenSelectedMessage(HWND window)
         SetRow(REVIVE_UI_IMAP, REVIVE_UI_FAILED, REVIVE_IMAP_CONFIGURATION_ERROR);
         return;
     }
-    BeginWorker(window, WORKER_MESSAGE_FETCH, static_cast<unsigned long>(itemData));
+    BeginWorker(window, WORKER_MESSAGE_FETCH, static_cast<unsigned long>(itemData),
+                REVIVE_IMAP_INITIAL_BODY_BYTES);
 }
 
 void AddInboxMessage(const ReviveUiInboxMessage* message)
@@ -427,7 +461,6 @@ LRESULT CALLBACK ReaderWindowProc(HWND window, UINT message,
         const int margin = 12;
         const int rowHeight = 24;
         wchar_t from[384];
-        wchar_t notice[128];
         GetClientRect(window, &client);
         wsprintf(from, L"%s", content->sender[0] != L'\0' ? content->sender : L"(unknown sender)");
         HWND fromControl = CreateWindow(L"STATIC", from, WS_CHILD | WS_VISIBLE,
@@ -439,22 +472,36 @@ LRESULT CALLBACK ReaderWindowProc(HWND window, UINT message,
             WS_CHILD | WS_VISIBLE, margin, margin + rowHeight,
             client.right - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(subjectControl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        wsprintf(notice, L"%s%s", content->date,
-                 content->usedHtmlFallback ? L"  (HTML converted to text)" : L"");
-        HWND detailControl = CreateWindow(L"STATIC", notice, WS_CHILD | WS_VISIBLE,
+        g_readerDetail = CreateWindow(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
             margin, margin + 2 * rowHeight, client.right - 2 * margin, rowHeight,
             window, NULL, GetModuleHandle(NULL), NULL);
-        SendMessage(detailControl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        HWND bodyControl = CreateWindow(L"EDIT", content->body,
+        SendMessage(g_readerDetail, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_readerBody = CreateWindow(L"EDIT", content->body,
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL |
             ES_READONLY | WS_VSCROLL, margin, margin + 3 * rowHeight,
             client.right - 2 * margin, client.bottom - (5 * rowHeight + 2 * margin),
             window, NULL, GetModuleHandle(NULL), NULL);
-        SendMessage(bodyControl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        SendMessage(g_readerBody, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_readerLoadMore = CreateWindow(L"BUTTON", L"LOAD MORE",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP, margin,
+            client.bottom - (rowHeight + margin), (client.right - 3 * margin) / 2,
+            rowHeight, window, reinterpret_cast<HMENU>(kReaderLoadMoreControl),
+            GetModuleHandle(NULL), NULL);
+        SendMessage(g_readerLoadMore, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-            margin, client.bottom - (rowHeight + margin), client.right - 2 * margin,
+            margin * 2 + (client.right - 3 * margin) / 2,
+            client.bottom - (rowHeight + margin), (client.right - 3 * margin) / 2,
             rowHeight, window, reinterpret_cast<HMENU>(IDOK), GetModuleHandle(NULL), NULL);
         SendMessage(backButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_readerUid = content->uid;
+        g_readerDisplayedBytes = content->displayedBytes;
+        g_readerHasMore = content->hasMore;
+        wchar_t notice[160];
+        wsprintf(notice, L"%s%s%s", content->date,
+                 content->usedHtmlFallback ? L"  (HTML converted to text)" : L"",
+                 content->hasMore ? L"  (more available)" : L"");
+        SetWindowText(g_readerDetail, notice);
+        EnableWindow(g_readerLoadMore, content->hasMore ? TRUE : FALSE);
         SetFocus(backButton);
         return 0;
     }
@@ -464,12 +511,28 @@ LRESULT CALLBACK ReaderWindowProc(HWND window, UINT message,
             DestroyWindow(window);
             return 0;
         }
+        if (LOWORD(wParam) == kReaderLoadMoreControl && HIWORD(wParam) == BN_CLICKED &&
+            g_readerHasMore && g_readerDisplayedBytes < REVIVE_IMAP_BODY_CAPACITY)
+        {
+            unsigned long nextBytes = g_readerDisplayedBytes + REVIVE_IMAP_BODY_PAGE_BYTES;
+            if (nextBytes > REVIVE_IMAP_BODY_CAPACITY)
+                nextBytes = REVIVE_IMAP_BODY_CAPACITY;
+            EnableWindow(g_readerLoadMore, FALSE);
+            BeginWorker(g_mainWindow, WORKER_MESSAGE_FETCH, g_readerUid, nextBytes);
+            return 0;
+        }
         break;
     case WM_CLOSE:
         DestroyWindow(window);
         return 0;
     case WM_DESTROY:
         g_readerWindow = NULL;
+        g_readerBody = NULL;
+        g_readerDetail = NULL;
+        g_readerLoadMore = NULL;
+        g_readerUid = 0;
+        g_readerDisplayedBytes = 0;
+        g_readerHasMore = false;
         return 0;
     }
     return DefWindowProc(window, message, wParam, lParam);
@@ -479,6 +542,20 @@ void ShowMessageReader(ReviveUiMessageBody* content)
 {
     if (content == NULL)
         return;
+    if (g_readerWindow != NULL && content->uid == g_readerUid)
+    {
+        wchar_t notice[160];
+        SetWindowText(g_readerBody, content->body);
+        g_readerDisplayedBytes = content->displayedBytes;
+        g_readerHasMore = content->hasMore;
+        wsprintf(notice, L"%s%s%s", content->date,
+                 content->usedHtmlFallback ? L"  (HTML converted to text)" : L"",
+                 content->hasMore ? L"  (more available)" : L"");
+        SetWindowText(g_readerDetail, notice);
+        EnableWindow(g_readerLoadMore, content->hasMore ? TRUE : FALSE);
+        HeapFree(GetProcessHeap(), 0, content);
+        return;
+    }
     if (g_readerWindow != NULL)
         DestroyWindow(g_readerWindow);
     g_readerWindow = CreateWindow(kReaderWindowClass, L"ReviveCE Message",
@@ -604,12 +681,15 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
 {
     switch (message)
     {
-    case WM_CREATE: CreateChildControls(window); return 0;
+    case WM_CREATE:
+        g_mainWindow = window;
+        CreateChildControls(window);
+        return 0;
     case WM_COMMAND:
         if (LOWORD(wParam) == IDC_RUN_TEST && HIWORD(wParam) == BN_CLICKED)
-        { BeginWorker(window, WORKER_TLS_TEST, 0); return 0; }
+        { BeginWorker(window, WORKER_TLS_TEST, 0, 0); return 0; }
         if (LOWORD(wParam) == IDC_REFRESH_INBOX && HIWORD(wParam) == BN_CLICKED)
-        { BeginWorker(window, WORKER_INBOX_REFRESH, 0); return 0; }
+        { BeginWorker(window, WORKER_INBOX_REFRESH, 0, 0); return 0; }
         if (LOWORD(wParam) == IDC_OPEN_MESSAGE && HIWORD(wParam) == BN_CLICKED)
         { OpenSelectedMessage(window); return 0; }
         if (LOWORD(wParam) == IDC_INBOX && HIWORD(wParam) == LBN_DBLCLK)
@@ -661,6 +741,7 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         ReviveImapClearCredentials(&g_sessionCredentials);
         if (g_readerWindow != NULL)
             DestroyWindow(g_readerWindow);
+        g_mainWindow = NULL;
         PostQuitMessage(0);
         return 0;
     }

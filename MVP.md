@@ -926,6 +926,11 @@ message text section without saving attachments, then renders a scrollable
 `text/plain` body. Common multipart messages expose their first text part; when
 that part is HTML, it uses a compact HTML-to-text fallback.
 
+M5.1 starts with an 8 KiB body prefix and offers **LOAD MORE** when the server
+has additional text. Each tap expands the safely decoded prefix by 8 KiB, up
+to 32 KiB; this avoids downloading attachments and avoids breaking quoted-
+printable or Base64 content at arbitrary page boundaries.
+
 ---
 
 ## M6 — SMTP

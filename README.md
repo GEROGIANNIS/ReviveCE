@@ -47,10 +47,11 @@ physical HTC Touch Pro over Wi-Fi:
 - M5: selected small messages open in the scrollable reader through a second,
   verified IMAP session.
 
-Current M5 limitation: the reader deliberately caps one fetched text section
-at 8 KiB to protect the phone's memory. Large messages currently display
-`MESSAGE TEXT TOO LARGE`; chunked/paginated IMAP body reads are the next reader
-improvement. Attachments are never downloaded.
+M5.1 reads the first 8 KiB of a message text section initially. When more text
+is available, the reader enables **LOAD MORE** and safely re-fetches a larger
+prefix in 8 KiB increments, up to 32 KiB. This keeps each IMAP transfer bounded
+while avoiding MIME decoding errors at arbitrary chunk boundaries. Attachments
+are never downloaded; text beyond 32 KiB remains a later pagination task.
 
 The M5 build reports TLS, certificate, hostname, and IMAP status separately. Any
 missing bundle, failed handshake, invalid chain, hostname mismatch, or missing
@@ -83,7 +84,8 @@ only in memory until ReviveCE closes so selected messages can be opened.
 The password field is cleared after refresh, but do not re-enter it for `OPEN`:
 the active in-memory session is reused. If a message cannot be read, the IMAP
 row now states the specific test outcome, such as `MESSAGE TEXT TOO LARGE` or
-`MESSAGE FORMAT NOT SUPPORTED`, alongside its diagnostic code.
+`MESSAGE FORMAT NOT SUPPORTED`, alongside its diagnostic code. In the reader,
+tap **LOAD MORE** when it is enabled to expand a large message safely.
 
 ## Layout
 
