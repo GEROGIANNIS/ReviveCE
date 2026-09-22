@@ -62,10 +62,15 @@
 #define NO_PSK
 #define NO_DH
 #define NO_DSA
-#define NO_SHA
+/* SHA-1 and MD5 are NOT disabled. wolfSSL's X.509 certificate parser requires
+ * SHA-1 internally for certificate chain verification and fingerprinting, even
+ * when the negotiated cipher suite uses only SHA-256/384. Disabling SHA-1
+ * causes wolfSSL_connect() to fail with a certificate error before hostname
+ * verification runs. MD5 is similarly needed for ASN.1 OID processing during
+ * certificate parsing. Neither algorithm is used in the negotiated cipher
+ * suite — they are only used internally by wolfSSL's certificate engine. */
 #define NO_RC4
 #define NO_MD4
-#define NO_MD5
 #define NO_DES3
 #define NO_DES3_TLS_SUITES
 #define NO_PWDBASED

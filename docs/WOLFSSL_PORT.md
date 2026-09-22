@@ -14,6 +14,12 @@ the self-signed GTS Root R1. Alternate-chain mode lets wolfSSL select the valid
 path from WR2 to that trusted root instead of rejecting the extra cross-signed
 certificate with `ASN_NO_SIGNER_E`. It does not disable peer verification.
 
+SHA-1 and MD5 must not be disabled (`NO_SHA`, `NO_MD5`). Although the negotiated
+cipher suites use only SHA-256/384, wolfSSL's X.509 certificate parser requires
+SHA-1 internally for chain verification and fingerprinting, and MD5 for ASN.1
+OID processing. Disabling either causes `wolfSSL_connect()` to return a
+certificate error before hostname verification runs.
+
 For M3:
 
 1. Keep wolfSSL pinned to a reviewed full release commit rather than tracking
