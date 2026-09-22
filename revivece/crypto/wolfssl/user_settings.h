@@ -44,13 +44,16 @@
 
 /* General-purpose constant-time math for RSA and ECC certificate chains.
  * WOLFSSL_SP_MATH_ALL includes RSA 2048/3072 and ECC P-256 by default.
- * Google's GTS Root R1 uses RSA 4096 and GTS Root R3/R4 use ECC P-384,
- * so both extended key sizes must be enabled explicitly or wolfSSL cannot
- * verify any certificate signed by those roots (ASN_SIG_CONFIRM_E -155). */
+ * Google's GTS Root R1 uses RSA 4096 and GTS Root R3/R4 use ECC P-384.
+ * In sp_int.h, WOLFSSL_SP_MATH_ALL defaults SP_INT_BITS to 3072 if not
+ * overridden, which causes RSA 4096 keys to exceed RSA_MAX_SIZE and fail
+ * with WC_KEY_SIZE_E (-131), mapped by ConfirmSignature to ASN_SIG_CONFIRM_E (-155).
+ * Defining SP_INT_BITS to 4096 expands the math backend and RSA bounds check. */
 #define WOLFSSL_SP_MATH_ALL
 #define WOLFSSL_SP_SMALL
 #define WOLFSSL_SP_4096
 #define WOLFSSL_SP_384
+#define SP_INT_BITS 4096
 #define WOLFSSL_NO_ASM
 #define HAVE_ECC
 #define ECC_TIMING_RESISTANT
