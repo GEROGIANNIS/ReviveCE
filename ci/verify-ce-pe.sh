@@ -3,6 +3,7 @@ set -euo pipefail
 
 file_path="${1:?usage: verify-ce-pe.sh path/to/application.exe}"
 test -f "${file_path}"
+file_name="$(basename "${file_path}")"
 
 read_u16() {
     local offset="$1"
@@ -83,10 +84,10 @@ if (( entry_point == 0 )); then
 fi
 
 hash="$(sha256sum "${file_path}" | awk '{print $1}')"
-printf '%s  HelloWorld.exe\n' "${hash}" >"${file_path}.sha256"
+printf '%s  %s\n' "${hash}" "${file_name}" >"${file_path}.sha256"
 
 summary=$(cat <<EOF
-### WM6 toolchain proof
+### Windows CE executable: ${file_name}
 
 - Machine: ARM (0x01c0)
 - Subsystem: Windows CE GUI (9)

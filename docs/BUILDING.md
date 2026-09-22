@@ -12,7 +12,7 @@ See `ci/README.md` for the pinned toolchain and source repositories.
 
 Run **WM6 ARMV4I Toolchain Test** manually from the repository's Actions tab.
 It can also run after changes to the workflow or `ci/` scripts. Its downloadable
-artifact is `WM6-ARMV4I-HelloWorld`.
+artifacts are `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M1-WM6-ARMV4I`.
 
 ## First device test: CI0-CI4
 
@@ -21,6 +21,9 @@ artifact is `WM6-ARMV4I-HelloWorld`.
 3. Download `WM6-ARMV4I-HelloWorld` from the completed run.
 4. Check the included SHA-256.
 5. Copy `HelloWorld.exe` to the HTC Touch Pro and launch it.
+
+After HelloWorld launches, download `ReviveTLS-M1-WM6-ARMV4I`, copy
+`ReviveTLS.exe` to the phone, and run the M1 network test over Wi-Fi.
 
 The workflow rejects desktop x86/x64 output by directly parsing the executable
 headers. It requires ARM machine `0x01c0`, PE32, Windows CE GUI subsystem `9`,
@@ -73,7 +76,8 @@ payloads.
 ## Milestone acceptance
 
 - **CI0-CI3:** GitHub Actions uploads a PE-verified ARMV4I HelloWorld artifact.
-- **CI4 / M0:** the HelloWorld ARM executable launches on the physical phone.
+- **CI4 / M0:** the HelloWorld ARM executable launches on the physical phone
+  (confirmed on the initial HTC Touch Pro target).
 - **M1:** DNS resolves `imap.gmail.com` and TCP connects to port 993 over Wi-Fi.
 
 An emulator run does not count as device acceptance. TLS, certificate, and

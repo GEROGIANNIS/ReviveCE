@@ -30,10 +30,11 @@ Run **WM6 ARMV4I Toolchain Test** from the Actions tab. A successful run:
 
 1. starts an `ubuntu-22.04` GitHub runner;
 2. enters the digest-pinned CeGCC ARM container;
-3. builds `ci/hello/hello.c` with `arm-mingw32ce-gcc`;
-4. parses the binary PE headers and requires ARM machine `0x01c0`, PE32,
+3. builds `ci/hello/hello.c` and the real M1 `ReviveTLS.exe` application;
+4. parses both binary PE headers and requires ARM machine `0x01c0`, PE32,
    Windows CE GUI subsystem `9`, and subsystem version `5.2`;
-5. uploads `WM6-ARMV4I-HelloWorld` with a SHA-256 checksum.
+5. uploads `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M1-WM6-ARMV4I`, each with a
+   SHA-256 checksum.
 
 CI0-CI3 pass when the artifact is uploaded. CI4 passes only after the downloaded
 executable launches on the physical HTC Touch Pro.

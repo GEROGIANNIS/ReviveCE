@@ -7,6 +7,7 @@ $requiredFiles = @(
     '.github\workflows\toolchain-test.yml',
     'ci\validate.sh',
     'ci\build-hello.sh',
+    'ci\build-revivetls.sh',
     'ci\verify-ce-pe.sh',
     'ci\verify-pe.ps1',
     'ci\hello\hello.c'
@@ -35,6 +36,10 @@ if ($workflow -match 'REVIVECE_TOOLCHAIN_ARCHIVE') {
 if ($workflow -notmatch 'verify-ce-pe\.sh') {
     throw 'Toolchain workflow does not verify the output PE headers.'
 }
+if ($workflow -notmatch 'build-revivetls\.sh' -or
+    $workflow -notmatch 'ReviveTLS-M1-WM6-ARMV4I') {
+    throw 'Toolchain workflow does not build and upload the ReviveTLS M1 artifact.'
+}
 
 $helloBuild = Get-Content -Raw -LiteralPath `
     (Join-Path $repositoryRoot 'ci\build-hello.sh')
@@ -43,6 +48,26 @@ if ($helloBuild -match '-mwindows') {
 }
 if ($helloBuild -notmatch '-Wl,--subsystem,9:5\.2') {
     throw 'CeGCC build must select Windows CE GUI subsystem 9, version 5.2.'
+}
+
+$reviveTlsBuild = Get-Content -Raw -LiteralPath `
+    (Join-Path $repositoryRoot 'ci\build-revivetls.sh')
+if ($reviveTlsBuild -match '-mwindows') {
+    throw "ReviveTLS must not use desktop MinGW's -mwindows flag."
+}
+if ($reviveTlsBuild -notmatch '-Wl,--subsystem,9:5\.2') {
+    throw 'ReviveTLS must select Windows CE GUI subsystem 9, version 5.2.'
+}
+foreach ($requiredSource in @(
+    'app/main.cpp',
+    'app/ui.cpp',
+    'common/log.cpp',
+    'net/socket.cpp',
+    'net/tls.cpp'
+)) {
+    if ($reviveTlsBuild -notmatch [regex]::Escape("revivece/$requiredSource")) {
+        throw "ReviveTLS CI build omits revivece/$requiredSource."
+    }
 }
 
 [xml]$project = Get-Content -Raw -LiteralPath $projectPath

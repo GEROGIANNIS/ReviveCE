@@ -20,11 +20,11 @@ The program deliberately reports `NOT BUILT` for TLS, certificate, and hostname
 verification. No connection is ever presented as secure until wolfSSL is
 integrated and all three checks pass on physical hardware.
 
-The canonical build machine is GitHub Actions. The first workflow uses a
-digest-pinned, open-source CeGCC 9.3 container to build an ARMV4I HelloWorld and
-rejects the result unless its PE headers identify it as an ARM Windows CE 5.2
-GUI program. This proves the toolchain before wolfSSL work begins. No repository
-secrets or proprietary compiler downloads are required for this proof.
+The canonical build machine is GitHub Actions. The workflow uses a
+digest-pinned, open-source CeGCC 9.3 container to build both the proven ARM
+HelloWorld smoke test and the M1 `ReviveTLS.exe`. It rejects either result
+unless its PE headers identify it as an ARM Windows CE 5.2 GUI program. No
+repository secrets or proprietary compiler downloads are required.
 
 See [docs/BUILDING.md](docs/BUILDING.md) for CI setup and device deployment,
 [ci/README.md](ci/README.md) for the pinned CeGCC toolchain contract, and

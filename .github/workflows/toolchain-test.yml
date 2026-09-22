@@ -31,6 +31,7 @@ jobs:
         shell: bash
         run: |
           command -v arm-mingw32ce-gcc
+          command -v arm-mingw32ce-g++
           command -v arm-mingw32ce-objdump
           arm-mingw32ce-gcc --version
 
@@ -42,6 +43,14 @@ jobs:
         shell: bash
         run: bash ./ci/verify-ce-pe.sh ./dist/HelloWorld.exe
 
+      - name: Build ReviveTLS M1
+        shell: bash
+        run: bash ./ci/build-revivetls.sh
+
+      - name: Verify ReviveTLS ARM executable
+        shell: bash
+        run: bash ./ci/verify-ce-pe.sh ./dist/ReviveTLS.exe
+
       - name: Upload phone test artifact
         uses: actions/upload-artifact@v7
         with:
@@ -49,5 +58,15 @@ jobs:
           path: |
             dist/HelloWorld.exe
             dist/HelloWorld.exe.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload ReviveTLS device test
+        uses: actions/upload-artifact@v7
+        with:
+          name: ReviveTLS-M1-WM6-ARMV4I
+          path: |
+            dist/ReviveTLS.exe
+            dist/ReviveTLS.exe.sha256
           if-no-files-found: error
           retention-days: 14
