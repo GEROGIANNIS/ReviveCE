@@ -92,7 +92,8 @@ foreach ($requiredImapControl in @(
         throw "M4 IMAP control is missing: $requiredImapControl."
     }
 }
-$messageSource = $imapSource
+$messageSource = $imapSource + "`n" + (Get-Content -Raw -LiteralPath `
+    (Join-Path $repositoryRoot 'revivece\mail\imap.h'))
 foreach ($requiredMessageControl in @(
     'ReviveImapFetchMessage',
     'A003 UID FETCH',
