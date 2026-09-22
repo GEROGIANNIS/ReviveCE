@@ -35,6 +35,23 @@ The repository currently contains the **M0-M5 ReviveTLS/IMAP proof application**
   downloads. Common single-part and first-part multipart plain text is shown;
   HTML is reduced to text when necessary.
 
+## Device-test progress
+
+The M3, M4, and initial M5 flows have been exercised successfully on the
+physical HTC Touch Pro over Wi-Fi:
+
+- M3: DNS, TCP, TLS 1.2, certificate-chain validation, hostname validation,
+  and the encrypted Gmail IMAP greeting all complete successfully.
+- M4: Gmail App Password authentication, INBOX selection, and retrieval of
+  the newest 25 header rows work directly from the phone.
+- M5: selected small messages open in the scrollable reader through a second,
+  verified IMAP session.
+
+Current M5 limitation: the reader deliberately caps one fetched text section
+at 8 KiB to protect the phone's memory. Large messages currently display
+`MESSAGE TEXT TOO LARGE`; chunked/paginated IMAP body reads are the next reader
+improvement. Attachments are never downloaded.
+
 The M5 build reports TLS, certificate, hostname, and IMAP status separately. Any
 missing bundle, failed handshake, invalid chain, hostname mismatch, or missing
 server greeting rejects the connection; plaintext fallback is never attempted.
