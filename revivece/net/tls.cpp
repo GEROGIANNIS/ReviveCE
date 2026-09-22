@@ -166,6 +166,7 @@ bool LoadCABundle(const wchar_t* path, unsigned char** contents, long* length)
     CloseHandle(file);
     *contents = buffer;
     *length = static_cast<long>(size);
+    ReviveLog("TLS", "CA bundle loaded", static_cast<int>(size));
     return true;
 }
 
@@ -298,6 +299,7 @@ ReviveTlsResult ReviveTLSConnect(ReviveNetConnection* network,
         DestroyConnection(connection);
         return REVIVE_TLS_CONFIGURATION_ERROR;
     }
+    ReviveLog("TLS", "CA certificates loaded into wolfSSL", 0);
 
     wolfSSL_CTX_SetIORecv(connection->context, ReceiveCallback);
     wolfSSL_CTX_SetIOSend(connection->context, SendCallback);
@@ -327,6 +329,31 @@ ReviveTlsResult ReviveTLSConnect(ReviveNetConnection* network,
     {
         error = wolfSSL_get_error(connection->session, result);
         ReviveLog("TLS", "TLS handshake rejected", error);
+
+        /* Log the human-readable wolfSSL error name for diagnostics. */
+        const char* errorName = wc_GetErrorString(error);
+        if (errorName != NULL)
+            ReviveLog("TLS", errorName, error);
+
+        /* Log the wolfSSL alert codes received from the server. */
+        WOLFSSL_ALERT_HISTORY alertHistory;
+        if (wolfSSL_get_alert_history(connection->session,
+                                      &alertHistory) == WOLFSSL_SUCCESS)
+        {
+            if (alertHistory.last_rx.level != 0 ||
+                alertHistory.last_rx.code != 0)
+                ReviveLog("TLS", "server alert received",
+                          (alertHistory.last_rx.level << 8) |
+                          alertHistory.last_rx.code);
+        }
+
+        if (IsCertificateError(error))
+            ReviveLog("TLS", "classified as certificate error", error);
+        else if (error == DOMAIN_NAME_MISMATCH)
+            ReviveLog("TLS", "classified as hostname error", error);
+        else
+            ReviveLog("TLS", "classified as handshake error", error);
+
         DestroyConnection(connection);
         if (error == DOMAIN_NAME_MISMATCH)
             return REVIVE_TLS_HOSTNAME_ERROR;
