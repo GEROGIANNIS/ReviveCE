@@ -34,6 +34,7 @@ HWND g_inbox = NULL;
 HANDLE g_workerThread = NULL;
 HWND g_readerWindow = NULL;
 ReviveImapCredentials g_sessionCredentials;
+bool g_inboxCanOpen = false;
 
 void ClearBytes(void* value, unsigned int length)
 {
@@ -83,12 +84,33 @@ const wchar_t* StateName(ReviveUiState state)
     }
 }
 
+const wchar_t* ImapFailureName(int result)
+{
+    switch (result)
+    {
+    case REVIVE_IMAP_CONFIGURATION_ERROR: return L"SELECT A MESSAGE";
+    case REVIVE_IMAP_IO_ERROR: return L"NETWORK READ FAILED";
+    case REVIVE_IMAP_GREETING_ERROR: return L"SERVER GREETING FAILED";
+    case REVIVE_IMAP_AUTHENTICATION_ERROR: return L"APP PASSWORD REJECTED";
+    case REVIVE_IMAP_SELECT_ERROR: return L"INBOX SELECT FAILED";
+    case REVIVE_IMAP_SEARCH_ERROR: return L"INBOX SEARCH FAILED";
+    case REVIVE_IMAP_FETCH_ERROR: return L"MESSAGE FETCH FAILED";
+    case REVIVE_IMAP_RESPONSE_TOO_LARGE: return L"SERVER RESPONSE TOO LARGE";
+    case REVIVE_IMAP_BODY_TOO_LARGE: return L"MESSAGE TEXT TOO LARGE";
+    case REVIVE_IMAP_UNSUPPORTED_MESSAGE: return L"MESSAGE FORMAT NOT SUPPORTED";
+    default: return L"IMAP FAILED";
+    }
+}
+
 void SetRow(ReviveUiRow row, ReviveUiState state, int nativeError)
 {
-    wchar_t text[96];
+    wchar_t text[160];
     if (row < REVIVE_UI_DNS || row >= REVIVE_UI_ROW_COUNT)
         return;
-    if (nativeError != 0)
+    if (row == REVIVE_UI_IMAP && state == REVIVE_UI_FAILED && nativeError > 0)
+        wsprintf(text, L"%s  %s (%d)", RowName(row),
+                 ImapFailureName(nativeError), nativeError);
+    else if (nativeError != 0)
         wsprintf(text, L"%s  ..........  %s (%d)", RowName(row),
                  StateName(state), nativeError);
     else
@@ -226,8 +248,12 @@ DWORD WINAPI NetworkWorker(void* context)
                     succeeded = true;
                 }
                 else
+                {
+                    ReviveLog("IMAP", "message fetch failed",
+                              static_cast<int>(imapResult));
                     PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_FAILED,
                                static_cast<int>(imapResult));
+                }
                 ClearBytes(messages, sizeof(messages));
             }
             else
@@ -332,6 +358,8 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid)
     {
         SendMessage(g_inbox, LB_RESETCONTENT, 0, 0);
         SetWindowText(g_passwordEdit, L"");
+        g_inboxCanOpen = false;
+        EnableWindow(g_openButton, FALSE);
     }
     ResetRows();
     EnableWindow(g_runButton, FALSE);
@@ -346,7 +374,7 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid)
         SetRow(REVIVE_UI_DNS, REVIVE_UI_FAILED, nativeError);
         EnableWindow(g_runButton, TRUE);
         EnableWindow(g_refreshButton, TRUE);
-        EnableWindow(g_openButton, TRUE);
+        EnableWindow(g_openButton, g_inboxCanOpen ? TRUE : FALSE);
     }
 }
 
@@ -377,7 +405,11 @@ void AddInboxMessage(const ReviveUiInboxMessage* message)
              sender, subject, date);
     const int item = SendMessage(g_inbox, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
     if (item != LB_ERR && item != LB_ERRSPACE)
+    {
         SendMessage(g_inbox, LB_SETITEMDATA, item, message->uid);
+        g_inboxCanOpen = true;
+        EnableWindow(g_openButton, TRUE);
+    }
 }
 
 LRESULT CALLBACK ReaderWindowProc(HWND window, UINT message,
@@ -514,7 +546,7 @@ void CreateChildControls(HWND window)
         reinterpret_cast<HMENU>(IDC_OPEN_MESSAGE), GetModuleHandle(NULL), NULL);
     SendMessage(g_openButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight + margin + 5;
-    HWND inboxLabel = CreateWindow(L"STATIC", L"Newest 25 messages (* = unread; select then OPEN):", WS_CHILD | WS_VISIBLE,
+    HWND inboxLabel = CreateWindow(L"STATIC", L"Select a message then OPEN. Do not re-enter password while app is open.", WS_CHILD | WS_VISIBLE,
         margin, top, width - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
     SendMessage(inboxLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight;
@@ -522,6 +554,7 @@ void CreateChildControls(HWND window)
         margin, top, width - 2 * margin, client.bottom - top - margin, window,
         reinterpret_cast<HMENU>(IDC_INBOX), GetModuleHandle(NULL), NULL);
     SendMessage(g_inbox, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    EnableWindow(g_openButton, FALSE);
 }
 }
 
@@ -616,7 +649,7 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         }
         EnableWindow(g_runButton, TRUE);
         EnableWindow(g_refreshButton, TRUE);
-        EnableWindow(g_openButton, TRUE);
+        EnableWindow(g_openButton, g_inboxCanOpen ? TRUE : FALSE);
         SetFocus(g_refreshButton);
         ReviveLog("APP", wParam ? "secure operation completed" : "secure operation failed", 0);
         return 0;

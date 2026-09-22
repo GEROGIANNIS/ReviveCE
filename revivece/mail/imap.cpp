@@ -858,6 +858,57 @@ ReviveImapResult ReadMessageFetchCompletion(ImapReader* reader, const char* tag,
         receivedLiteral = true;
     }
 }
+
+ReviveImapResult ReadSectionFetchCompletion(ImapReader* reader, const char* tag,
+                                            char* headers, int headerCapacity,
+                                            char* content, int contentCapacity,
+                                            bool captureMimeHeaders)
+{
+    char line[kLineCapacity];
+    bool tooLarge;
+    bool succeeded;
+    bool receivedContent = false;
+    bool receivedHeader = false;
+    if (headers != NULL && headerCapacity > 0)
+        headers[0] = '\0';
+    if (content != NULL && contentCapacity > 0)
+        content[0] = '\0';
+    for (;;)
+    {
+        unsigned long literalLength;
+        char* destination = content;
+        int capacity = contentCapacity;
+        if (!ReadLine(reader, line, sizeof(line), &tooLarge))
+            return tooLarge ? REVIVE_IMAP_RESPONSE_TOO_LARGE : REVIVE_IMAP_IO_ERROR;
+        if (tooLarge)
+            return REVIVE_IMAP_RESPONSE_TOO_LARGE;
+        if (IsTaggedCompletion(line, tag, &succeeded))
+        {
+            if (!succeeded)
+                return REVIVE_IMAP_FETCH_ERROR;
+            if (content == NULL)
+                return receivedHeader ? REVIVE_IMAP_OK : REVIVE_IMAP_FETCH_ERROR;
+            return receivedContent ? REVIVE_IMAP_OK : REVIVE_IMAP_FETCH_ERROR;
+        }
+        if (!ParseLiteralLength(line, &literalLength))
+            continue;
+        if ((content == NULL || captureMimeHeaders) && headers != NULL &&
+            (!captureMimeHeaders || Contains(line, "MIME]")))
+        {
+            destination = headers;
+            capacity = headerCapacity;
+            receivedHeader = true;
+        }
+        else
+            receivedContent = true;
+        if (destination == NULL || capacity < 2 ||
+            literalLength >= static_cast<unsigned long>(capacity))
+            return REVIVE_IMAP_BODY_TOO_LARGE;
+        if (!ReadExact(reader, destination, literalLength))
+            return REVIVE_IMAP_IO_ERROR;
+        destination[literalLength] = '\0';
+    }
+}
 }
 
 void ReviveImapClearCredentials(ReviveImapCredentials* credentials)
@@ -940,7 +991,10 @@ ReviveImapResult ReviveImapFetchMessage(ReviveTlsConnection* connection,
                                         bool* usedHtmlFallback)
 {
     ImapReader reader;
-    char command[160];
+    char command[256];
+    char messageHeaders[4096];
+    char partHeaders[4096];
+    char contentType[256];
     int commandLength = 0;
     ReviveImapResult result;
 
@@ -959,17 +1013,79 @@ ReviveImapResult ReviveImapFetchMessage(ReviveTlsConnection* connection,
     command[0] = '\0';
     if (!AppendText(command, sizeof(command), &commandLength, "A003 UID FETCH ") ||
         !AppendUnsigned(command, sizeof(command), &commandLength, uid) ||
-        !AppendText(command, sizeof(command), &commandLength, " (UID BODY.PEEK[])\r\n"))
+        !AppendText(command, sizeof(command), &commandLength,
+                    " (UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE CONTENT-TYPE CONTENT-TRANSFER-ENCODING)])\r\n"))
         return REVIVE_IMAP_CONFIGURATION_ERROR;
     if (!WriteAll(connection, command))
         return REVIVE_IMAP_IO_ERROR;
-    result = ReadMessageFetchCompletion(&reader, "A003", header, body,
-                                        bodyCapacity, usedHtmlFallback);
+    result = ReadSectionFetchCompletion(&reader, "A003", messageHeaders,
+                                        sizeof(messageHeaders), NULL, 0, false);
+    if (result != REVIVE_IMAP_OK)
+    {
+        ClearBytes(command, sizeof(command));
+        ClearBytes(messageHeaders, sizeof(messageHeaders));
+        return result;
+    }
+    ClearBytes(header, sizeof(*header));
+    CopyHeaderValue(messageHeaders, "From", header->sender, sizeof(header->sender));
+    CopyHeaderValue(messageHeaders, "Subject", header->subject, sizeof(header->subject));
+    CopyHeaderValue(messageHeaders, "Date", header->date, sizeof(header->date));
+    CopyHeaderValue(messageHeaders, "Content-Type", contentType, sizeof(contentType));
+
+    commandLength = 0;
+    command[0] = '\0';
+    if (!AppendText(command, sizeof(command), &commandLength, "A004 UID FETCH ") ||
+        !AppendUnsigned(command, sizeof(command), &commandLength, uid))
+    {
+        ClearBytes(command, sizeof(command));
+        ClearBytes(messageHeaders, sizeof(messageHeaders));
+        return REVIVE_IMAP_CONFIGURATION_ERROR;
+    }
+    const bool multipart = Contains(contentType, "multipart/");
+    if (multipart)
+    {
+        if (!AppendText(command, sizeof(command), &commandLength,
+                        " (BODY.PEEK[1.MIME] BODY.PEEK[1])\r\n"))
+        {
+            ClearBytes(command, sizeof(command));
+            ClearBytes(messageHeaders, sizeof(messageHeaders));
+            return REVIVE_IMAP_CONFIGURATION_ERROR;
+        }
+    }
+    else if (!AppendText(command, sizeof(command), &commandLength,
+                         " (BODY.PEEK[TEXT])\r\n"))
+    {
+        ClearBytes(command, sizeof(command));
+        ClearBytes(messageHeaders, sizeof(messageHeaders));
+        return REVIVE_IMAP_CONFIGURATION_ERROR;
+    }
+    if (!WriteAll(connection, command))
+    {
+        ClearBytes(command, sizeof(command));
+        ClearBytes(messageHeaders, sizeof(messageHeaders));
+        return REVIVE_IMAP_IO_ERROR;
+    }
+    result = ReadSectionFetchCompletion(&reader, "A004", partHeaders,
+                                        sizeof(partHeaders), body, bodyCapacity,
+                                        multipart);
     ClearBytes(command, sizeof(command));
     if (result == REVIVE_IMAP_OK)
     {
+        const char* partTypeHeaders = multipart && partHeaders[0] != '\0' ?
+                                      partHeaders : messageHeaders;
+        char selectedContentType[256];
+        CopyHeaderValue(partTypeHeaders, "Content-Type", selectedContentType,
+                        sizeof(selectedContentType));
+        *usedHtmlFallback = Contains(selectedContentType, "text/html");
+        if (!DecodeCandidate(partTypeHeaders, body, static_cast<int>(strlen(body)),
+                             body, bodyCapacity, *usedHtmlFallback))
+            result = REVIVE_IMAP_UNSUPPORTED_MESSAGE;
+        ClearBytes(selectedContentType, sizeof(selectedContentType));
         header->uid = uid;
-        ReviveLog("IMAP", "message text received", 0);
+        if (result == REVIVE_IMAP_OK)
+            ReviveLog("IMAP", "message text received", 0);
     }
+    ClearBytes(messageHeaders, sizeof(messageHeaders));
+    ClearBytes(partHeaders, sizeof(partHeaders));
     return result;
 }

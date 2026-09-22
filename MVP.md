@@ -921,10 +921,10 @@ read plain-text body
 ```
 
 Current implementation note: selecting an M4 inbox row opens the M5 reader.
-It establishes another verified IMAP connection, fetches the selected message
-without saving attachments, and renders a scrollable `text/plain` body. For a
-multipart message it chooses the first `text/plain` part; when only
-`text/html` is available, it uses a compact HTML-to-text fallback.
+It establishes another verified IMAP connection, fetches headers first and a
+message text section without saving attachments, then renders a scrollable
+`text/plain` body. Common multipart messages expose their first text part; when
+that part is HTML, it uses a compact HTML-to-text fallback.
 
 ---
 

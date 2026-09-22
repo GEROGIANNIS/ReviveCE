@@ -30,9 +30,10 @@ The repository currently contains the **M0-M5 ReviveTLS/IMAP proof application**
   date, and unread state.
 - selectable inbox rows and a scrollable message reader that fetches a selected
   message over a new verified IMAP session;
-- a compact MIME reader for ordinary plain-text mail, multipart mail with a
-  preferred `text/plain` part, and basic HTML-to-text fallback. Attachments are
-  neither downloaded nor saved.
+- section-based IMAP retrieval: message headers are fetched first, then a text
+  section rather than the complete RFC822 message, avoiding attachment
+  downloads. Common single-part and first-part multipart plain text is shown;
+  HTML is reduced to text when necessary.
 
 The M5 build reports TLS, certificate, hostname, and IMAP status separately. Any
 missing bundle, failed handshake, invalid chain, hostname mismatch, or missing
@@ -62,6 +63,10 @@ The full-screen reader shows its sender, subject, date, and a scrollable
 plain-text body. When only HTML is available, the reader labels its simplified
 text conversion. The App Password is never written to logs or disk; it remains
 only in memory until ReviveCE closes so selected messages can be opened.
+The password field is cleared after refresh, but do not re-enter it for `OPEN`:
+the active in-memory session is reused. If a message cannot be read, the IMAP
+row now states the specific test outcome, such as `MESSAGE TEXT TOO LARGE` or
+`MESSAGE FORMAT NOT SUPPORTED`, alongside its diagnostic code.
 
 ## Layout
 

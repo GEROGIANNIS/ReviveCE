@@ -96,9 +96,9 @@ $messageSource = $imapSource
 foreach ($requiredMessageControl in @(
     'ReviveImapFetchMessage',
     'A003 UID FETCH',
-    'BODY.PEEK[]',
-    'multipart/',
-    'text/plain'
+    'BODY.PEEK[TEXT]',
+    'BODY.PEEK[1.MIME]',
+    'ReadSectionFetchCompletion'
 )) {
     if ($messageSource -notmatch [regex]::Escape($requiredMessageControl)) {
         throw "M5 message control is missing: $requiredMessageControl."
