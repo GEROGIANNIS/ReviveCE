@@ -6,7 +6,7 @@ Windows Mobile 6.1 Professional on ARMV4I.
 
 ## Current milestone
 
-The repository currently contains the **M0-M5 ReviveTLS/IMAP proof application**:
+The repository currently contains the **M0-M6 ReviveTLS mail proof application**:
 
 - a native Win32/Windows CE user interface sized for a 480 x 640 device;
 - a worker-thread network test so DNS timeouts do not freeze the UI;
@@ -23,8 +23,8 @@ The repository currently contains the **M0-M5 ReviveTLS/IMAP proof application**
 - Google's maintained 21-certificate service trust bundle, shipped beside the
   executable rather than using Windows Mobile's obsolete certificate store;
 - a required encrypted IMAP greeting before the TLS test reports success;
-- a Gmail App Password form held only for the current refresh, never written
-  to the log or settings;
+- a Gmail App Password held only in the active application session, never
+  written to the log or settings;
 - tagged IMAP `LOGIN`, `SELECT INBOX`, `UID SEARCH`, and header-only `UID
   FETCH` commands for the newest 25 messages, including sender, subject,
   date, and unread state.
@@ -34,6 +34,8 @@ The repository currently contains the **M0-M5 ReviveTLS/IMAP proof application**
   section rather than the complete RFC822 message, avoiding attachment
   downloads. Common single-part and first-part multipart plain text is shown;
   HTML is reduced to text when necessary.
+- a modeless compose screen that sends a bounded plain-text message through
+  Gmail SMTP over a separate, certificate-verified TLS 1.2 connection.
 
 ## Device-test progress
 
@@ -53,13 +55,18 @@ prefix in 8 KiB increments, up to 32 KiB. This keeps each IMAP transfer bounded
 while avoiding MIME decoding errors at arbitrary chunk boundaries. Attachments
 are never downloaded; text beyond 32 KiB remains a later pagination task.
 
-The M5 build reports TLS, certificate, hostname, and IMAP status separately. Any
+M6 is implemented and awaits physical-device confirmation. It reuses the active
+in-memory Gmail App Password, performs SMTP `EHLO` and `AUTH LOGIN`, then sends
+a plain-text UTF-8 message with bounded recipient, subject, and body fields.
+It has no attachments, HTML composition, drafts, or sent-mail view yet.
+
+The build reports TLS, certificate, hostname, and MAIL status separately. Any
 missing bundle, failed handshake, invalid chain, hostname mismatch, or missing
 server greeting rejects the connection; plaintext fallback is never attempted.
 
 The canonical build machine is GitHub Actions. The workflow uses a
 digest-pinned, open-source CeGCC 9.3 container to build both the proven ARM
-HelloWorld smoke test and the M5 `ReviveTLS.exe`. It rejects either result
+HelloWorld smoke test and the M6 `ReviveTLS.exe`. It rejects either result
 unless its PE headers identify it as an ARM Windows CE 5.2 GUI program. No
 repository secrets or proprietary compiler downloads are required.
 
@@ -70,7 +77,7 @@ See [docs/BUILDING.md](docs/BUILDING.md) for CI setup and device deployment,
 ## What the app shows on the phone
 
 `ReviveCE Mail` opens with separate DNS, TCP, TLS 1.2, Certificate, Hostname,
-and IMAP status rows, followed by Gmail address and App Password inputs.
+and MAIL status rows, followed by Gmail address and App Password inputs.
 `TEST TLS` proves the encrypted connection without logging in. `REFRESH INBOX`
 authenticates with the App Password, clears that edit field, and fills the list
 with up to 25 recent messages. Each row shows a `*` when unread, plus sender,
@@ -86,6 +93,12 @@ the active in-memory session is reused. If a message cannot be read, the IMAP
 row now states the specific test outcome, such as `MESSAGE TEXT TOO LARGE` or
 `MESSAGE FORMAT NOT SUPPORTED`, alongside its diagnostic code. In the reader,
 tap **LOAD MORE** when it is enabled to expand a large message safely.
+
+After a successful inbox refresh, tap **COMPOSE** to enter a recipient, an
+ASCII subject, and plain-text body, then tap **SEND**. The same temporary
+in-memory App Password is reused; the compose form and its message are not
+written to disk or logs. `SENT. Gmail accepted the message.` means Gmail's SMTP
+server accepted it for delivery, not that a recipient has read it.
 
 ## Layout
 

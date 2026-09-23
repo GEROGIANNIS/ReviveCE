@@ -1,4 +1,5 @@
 #include "../mail/imap.h"
+#include "../mail/smtp.h"
 #include "../net/socket.h"
 #include "../net/tls.h"
 #include "ui.h"
@@ -10,13 +11,18 @@ namespace
 {
 const wchar_t* const kWindowClass = L"ReviveTLSWindow";
 const wchar_t* const kReaderWindowClass = L"ReviveCEReaderWindow";
+const wchar_t* const kComposeWindowClass = L"ReviveCEComposeWindow";
 const int kReaderLoadMoreControl = 2001;
-const char* const kServerHost = "imap.gmail.com";
-const unsigned short kServerPort = 993;
+const int kComposeSendControl = 2002;
+const char* const kImapServerHost = "imap.gmail.com";
+const unsigned short kImapServerPort = 993;
+const char* const kSmtpServerHost = "smtp.gmail.com";
+const unsigned short kSmtpServerPort = 465;
 const DWORD kConnectTimeoutMilliseconds = 15000;
 const wchar_t* const kCABundleFileName = L"google-roots.pem";
 
-enum WorkerMode { WORKER_TLS_TEST = 0, WORKER_INBOX_REFRESH, WORKER_MESSAGE_FETCH };
+enum WorkerMode { WORKER_TLS_TEST = 0, WORKER_INBOX_REFRESH, WORKER_MESSAGE_FETCH,
+                  WORKER_SMTP_SEND };
 struct WorkerRequest
 {
     HWND window;
@@ -24,12 +30,14 @@ struct WorkerRequest
     unsigned long uid;
     unsigned long bodyBytes;
     ReviveImapCredentials credentials;
+    ReviveSmtpMessage outgoing;
 };
 
 HWND g_statusControls[REVIVE_UI_ROW_COUNT];
 HWND g_runButton = NULL;
 HWND g_refreshButton = NULL;
 HWND g_openButton = NULL;
+HWND g_composeButton = NULL;
 HWND g_emailEdit = NULL;
 HWND g_passwordEdit = NULL;
 HWND g_inbox = NULL;
@@ -42,6 +50,12 @@ HWND g_mainWindow = NULL;
 unsigned long g_readerUid = 0;
 unsigned long g_readerDisplayedBytes = 0;
 bool g_readerHasMore = false;
+HWND g_composeWindow = NULL;
+HWND g_composeRecipient = NULL;
+HWND g_composeSubject = NULL;
+HWND g_composeBody = NULL;
+HWND g_composeSend = NULL;
+HWND g_composeStatus = NULL;
 ReviveImapCredentials g_sessionCredentials;
 bool g_inboxCanOpen = false;
 
@@ -55,7 +69,7 @@ void ClearBytes(void* value, unsigned int length)
 const wchar_t* RowName(ReviveUiRow row)
 {
     static const wchar_t* const names[REVIVE_UI_ROW_COUNT] =
-    { L"DNS", L"TCP", L"TLS 1.2", L"Certificate", L"Hostname", L"IMAP" };
+    { L"DNS", L"TCP", L"TLS 1.2", L"Certificate", L"Hostname", L"MAIL" };
     return names[row];
 }
 
@@ -93,7 +107,7 @@ const wchar_t* StateName(ReviveUiState state)
     }
 }
 
-const wchar_t* ImapFailureName(int result)
+const wchar_t* MailFailureName(int result)
 {
     switch (result)
     {
@@ -107,7 +121,17 @@ const wchar_t* ImapFailureName(int result)
     case REVIVE_IMAP_RESPONSE_TOO_LARGE: return L"SERVER RESPONSE TOO LARGE";
     case REVIVE_IMAP_BODY_TOO_LARGE: return L"MESSAGE TEXT TOO LARGE";
     case REVIVE_IMAP_UNSUPPORTED_MESSAGE: return L"MESSAGE FORMAT NOT SUPPORTED";
-    default: return L"IMAP FAILED";
+    case REVIVE_SMTP_CONFIGURATION_ERROR: return L"CHECK RECIPIENT OR TEXT";
+    case REVIVE_SMTP_IO_ERROR: return L"NETWORK WRITE FAILED";
+    case REVIVE_SMTP_GREETING_ERROR: return L"SMTP GREETING FAILED";
+    case REVIVE_SMTP_EHLO_ERROR: return L"SMTP EHLO FAILED";
+    case REVIVE_SMTP_AUTHENTICATION_ERROR: return L"APP PASSWORD REJECTED";
+    case REVIVE_SMTP_SENDER_ERROR: return L"SENDER REJECTED";
+    case REVIVE_SMTP_RECIPIENT_ERROR: return L"RECIPIENT REJECTED";
+    case REVIVE_SMTP_DATA_ERROR: return L"SMTP DATA FAILED";
+    case REVIVE_SMTP_MESSAGE_ERROR: return L"MESSAGE REJECTED";
+    case REVIVE_SMTP_RESPONSE_TOO_LARGE: return L"SMTP RESPONSE TOO LARGE";
+    default: return L"MAIL FAILED";
     }
 }
 
@@ -118,7 +142,7 @@ void SetRow(ReviveUiRow row, ReviveUiState state, int nativeError)
         return;
     if (row == REVIVE_UI_IMAP && state == REVIVE_UI_FAILED && nativeError > 0)
         wsprintf(text, L"%s  %s (%d)", RowName(row),
-                 ImapFailureName(nativeError), nativeError);
+                 MailFailureName(nativeError), nativeError);
     else if (nativeError != 0)
         wsprintf(text, L"%s  ..........  %s (%d)", RowName(row),
                  StateName(state), nativeError);
@@ -194,6 +218,12 @@ void PostMessageBody(HWND window, const ReviveImapMessage* message,
         HeapFree(GetProcessHeap(), 0, copied);
 }
 
+void PostSendResult(HWND window, ReviveSmtpResult result)
+{
+    PostMessage(window, WM_REVIVE_SEND_RESULT,
+                static_cast<WPARAM>(result), 0);
+}
+
 void PostTlsSuccess(HWND window)
 {
     PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_OK, 0);
@@ -221,7 +251,11 @@ DWORD WINAPI NetworkWorker(void* context)
     ReviveTlsConnection* tlsConnection = NULL;
     wchar_t caBundlePath[MAX_PATH];
     bool succeeded = false;
-    const bool connected = ReviveNetConnect(kServerHost, kServerPort,
+    const bool sending = request->mode == WORKER_SMTP_SEND;
+    ReviveSmtpResult sendResult = REVIVE_SMTP_IO_ERROR;
+    const char* serverHost = sending ? kSmtpServerHost : kImapServerHost;
+    const unsigned short serverPort = sending ? kSmtpServerPort : kImapServerPort;
+    const bool connected = ReviveNetConnect(serverHost, serverPort,
         kConnectTimeoutMilliseconds, &connection, NetworkProgress, window);
     if (connected && ReviveTLSIsAvailable())
     {
@@ -230,7 +264,7 @@ DWORD WINAPI NetworkWorker(void* context)
         PostStatus(window, REVIVE_UI_CERTIFICATE, REVIVE_UI_RUNNING, 0);
         PostStatus(window, REVIVE_UI_HOSTNAME, REVIVE_UI_RUNNING, 0);
         if (BuildCABundlePath(caBundlePath, MAX_PATH))
-            tlsResult = ReviveTLSConnect(&connection, kServerHost, caBundlePath, &tlsConnection);
+            tlsResult = ReviveTLSConnect(&connection, serverHost, caBundlePath, &tlsConnection);
         if (tlsResult == REVIVE_TLS_OK)
         {
             PostTlsSuccess(window);
@@ -269,7 +303,7 @@ DWORD WINAPI NetworkWorker(void* context)
                 }
                 ClearBytes(messages, sizeof(messages));
             }
-            else
+            else if (request->mode == WORKER_MESSAGE_FETCH)
             {
                 ReviveImapMessage header;
                 char* body = static_cast<char*>(HeapAlloc(GetProcessHeap(),
@@ -304,6 +338,24 @@ DWORD WINAPI NetworkWorker(void* context)
                     HeapFree(GetProcessHeap(), 0, body);
                 }
             }
+            else
+            {
+                PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_RUNNING, 0);
+                sendResult = ReviveSmtpSendMessage(
+                    tlsConnection, &request->credentials, &request->outgoing);
+                if (sendResult == REVIVE_SMTP_OK)
+                {
+                    ReviveLog("SMTP", "plain-text message accepted", 0);
+                    PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_OK, 0);
+                    succeeded = true;
+                }
+                else
+                {
+                    ReviveLog("SMTP", "message send failed", static_cast<int>(sendResult));
+                    PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_FAILED,
+                               static_cast<int>(sendResult));
+                }
+            }
         }
         else
             PostTlsFailure(window, tlsResult);
@@ -319,8 +371,11 @@ DWORD WINAPI NetworkWorker(void* context)
     if (connected)
         ReviveNetClose(&connection);
     ReviveImapClearCredentials(&request->credentials);
+    ReviveSmtpClearMessage(&request->outgoing);
     ClearBytes(request, sizeof(*request));
     HeapFree(GetProcessHeap(), 0, request);
+    if (sending)
+        PostSendResult(window, sendResult);
     PostMessage(window, WM_REVIVE_TEST_COMPLETE, succeeded ? TRUE : FALSE, 0);
     return 0;
 }
@@ -337,11 +392,20 @@ void ResetRows()
 
 bool CopyEditUtf8(HWND edit, char* destination, int capacity)
 {
-    wchar_t wide[REVIVE_IMAP_PASSWORD_CAPACITY];
-    const int copied = GetWindowText(edit, wide, sizeof(wide) / sizeof(wchar_t));
-    bool succeeded = copied > 0 && WideCharToMultiByte(CP_UTF8, 0, wide, -1,
+    wchar_t* wide;
+    int copied;
+    bool succeeded;
+    if (edit == NULL || destination == NULL || capacity < 2)
+        return false;
+    wide = static_cast<wchar_t*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+                                            capacity * sizeof(wchar_t)));
+    if (wide == NULL)
+        return false;
+    copied = GetWindowText(edit, wide, capacity);
+    succeeded = copied > 0 && WideCharToMultiByte(CP_UTF8, 0, wide, -1,
         destination, capacity, NULL, NULL) != 0;
-    ClearBytes(wide, sizeof(wide));
+    ClearBytes(wide, capacity * sizeof(wchar_t));
+    HeapFree(GetProcessHeap(), 0, wide);
     return succeeded;
 }
 
@@ -371,10 +435,10 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
     if (mode == WORKER_INBOX_REFRESH)
         CopyMemory(&g_sessionCredentials, &request->credentials,
                    sizeof(g_sessionCredentials));
-    if (mode == WORKER_MESSAGE_FETCH)
+    if (mode == WORKER_MESSAGE_FETCH || mode == WORKER_SMTP_SEND)
     {
-        if (uid == 0 || bodyBytes == 0 ||
-            bodyBytes > REVIVE_IMAP_BODY_CAPACITY ||
+        if ((mode == WORKER_MESSAGE_FETCH && (uid == 0 || bodyBytes == 0 ||
+            bodyBytes > REVIVE_IMAP_BODY_CAPACITY)) ||
             g_sessionCredentials.email[0] == '\0' ||
             g_sessionCredentials.appPassword[0] == '\0')
         {
@@ -384,6 +448,20 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
         }
         CopyMemory(&request->credentials, &g_sessionCredentials,
                    sizeof(request->credentials));
+    }
+    if (mode == WORKER_SMTP_SEND &&
+        (!CopyEditUtf8(g_composeRecipient, request->outgoing.recipient,
+                       sizeof(request->outgoing.recipient)) ||
+         !CopyEditUtf8(g_composeSubject, request->outgoing.subject,
+                       sizeof(request->outgoing.subject)) ||
+         !CopyEditUtf8(g_composeBody, request->outgoing.body,
+                       sizeof(request->outgoing.body))))
+    {
+        ReviveImapClearCredentials(&request->credentials);
+        ReviveSmtpClearMessage(&request->outgoing);
+        HeapFree(GetProcessHeap(), 0, request);
+        SetRow(REVIVE_UI_IMAP, REVIVE_UI_FAILED, REVIVE_SMTP_CONFIGURATION_ERROR);
+        return;
     }
     if (mode == WORKER_INBOX_REFRESH)
     {
@@ -396,6 +474,7 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
     EnableWindow(g_runButton, FALSE);
     EnableWindow(g_refreshButton, FALSE);
     EnableWindow(g_openButton, FALSE);
+    EnableWindow(g_composeButton, FALSE);
     g_workerThread = CreateThread(NULL, 0, NetworkWorker, request, 0, &threadId);
     if (g_workerThread == NULL)
     {
@@ -406,8 +485,120 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
         EnableWindow(g_runButton, TRUE);
         EnableWindow(g_refreshButton, TRUE);
         EnableWindow(g_openButton, g_inboxCanOpen ? TRUE : FALSE);
+        EnableWindow(g_composeButton, TRUE);
         if (g_readerLoadMore != NULL)
             EnableWindow(g_readerLoadMore, g_readerHasMore ? TRUE : FALSE);
+    }
+}
+
+LRESULT CALLBACK ComposeWindowProc(HWND window, UINT message,
+                                   WPARAM wParam, LPARAM lParam)
+{
+    switch (message)
+    {
+    case WM_CREATE:
+    {
+        RECT client;
+        HFONT font = static_cast<HFONT>(GetStockObject(SYSTEM_FONT));
+        const int margin = 12;
+        const int rowHeight = 24;
+        GetClientRect(window, &client);
+        HWND recipientLabel = CreateWindow(L"STATIC", L"To:", WS_CHILD | WS_VISIBLE,
+            margin, margin, 42, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+        SendMessage(recipientLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_composeRecipient = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER |
+            WS_TABSTOP | ES_AUTOHSCROLL, margin + 42, margin,
+            client.right - 2 * margin - 42, rowHeight, window, NULL,
+            GetModuleHandle(NULL), NULL);
+        SendMessage(g_composeRecipient, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        HWND subjectLabel = CreateWindow(L"STATIC", L"Subject:", WS_CHILD | WS_VISIBLE,
+            margin, margin + rowHeight + 4, 52, rowHeight, window, NULL,
+            GetModuleHandle(NULL), NULL);
+        SendMessage(subjectLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_composeSubject = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER |
+            WS_TABSTOP | ES_AUTOHSCROLL, margin + 52, margin + rowHeight + 4,
+            client.right - 2 * margin - 52, rowHeight, window, NULL,
+            GetModuleHandle(NULL), NULL);
+        SendMessage(g_composeSubject, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_composeStatus = CreateWindow(L"STATIC", L"Plain text only. ASCII subject.",
+            WS_CHILD | WS_VISIBLE, margin, margin + (rowHeight + 4) * 2,
+            client.right - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+        SendMessage(g_composeStatus, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_composeBody = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER |
+            WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
+            margin, margin + (rowHeight + 4) * 3, client.right - 2 * margin,
+            client.bottom - (margin * 2 + (rowHeight + 4) * 5), window, NULL,
+            GetModuleHandle(NULL), NULL);
+        SendMessage(g_composeBody, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_composeSend = CreateWindow(L"BUTTON", L"SEND", WS_CHILD | WS_VISIBLE |
+            WS_TABSTOP | BS_DEFPUSHBUTTON, margin,
+            client.bottom - (margin + rowHeight), (client.right - 3 * margin) / 2,
+            rowHeight, window, reinterpret_cast<HMENU>(kComposeSendControl),
+            GetModuleHandle(NULL), NULL);
+        SendMessage(g_composeSend, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+            margin * 2 + (client.right - 3 * margin) / 2,
+            client.bottom - (margin + rowHeight), (client.right - 3 * margin) / 2,
+            rowHeight, window, reinterpret_cast<HMENU>(IDOK), GetModuleHandle(NULL), NULL);
+        SendMessage(backButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        SetFocus(g_composeRecipient);
+        return 0;
+    }
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDOK && HIWORD(wParam) == BN_CLICKED)
+        {
+            DestroyWindow(window);
+            return 0;
+        }
+        if (LOWORD(wParam) == kComposeSendControl && HIWORD(wParam) == BN_CLICKED)
+        {
+            SetWindowText(g_composeStatus, L"SENDING...");
+            EnableWindow(g_composeSend, FALSE);
+            BeginWorker(g_mainWindow, WORKER_SMTP_SEND, 0, 0);
+            if (g_workerThread == NULL)
+            {
+                SetWindowText(g_composeStatus, L"CHECK RECIPIENT OR TEXT");
+                EnableWindow(g_composeSend, TRUE);
+            }
+            return 0;
+        }
+        break;
+    case WM_CLOSE:
+        DestroyWindow(window);
+        return 0;
+    case WM_DESTROY:
+        g_composeWindow = NULL;
+        g_composeRecipient = NULL;
+        g_composeSubject = NULL;
+        g_composeBody = NULL;
+        g_composeSend = NULL;
+        g_composeStatus = NULL;
+        return 0;
+    }
+    return DefWindowProc(window, message, wParam, lParam);
+}
+
+void OpenCompose()
+{
+    if (g_composeWindow != NULL)
+    {
+        ShowWindow(g_composeWindow, SW_SHOW);
+        return;
+    }
+    if (g_sessionCredentials.email[0] == '\0' ||
+        g_sessionCredentials.appPassword[0] == '\0')
+    {
+        SetRow(REVIVE_UI_IMAP, REVIVE_UI_FAILED, REVIVE_SMTP_CONFIGURATION_ERROR);
+        return;
+    }
+    g_composeWindow = CreateWindow(kComposeWindowClass, L"ReviveCE Compose",
+        WS_VISIBLE | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT,
+        GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), NULL, NULL,
+        GetModuleHandle(NULL), NULL);
+    if (g_composeWindow != NULL)
+    {
+        ShowWindow(g_composeWindow, SW_SHOW);
+        UpdateWindow(g_composeWindow);
     }
 }
 
@@ -579,7 +770,7 @@ void CreateChildControls(HWND window)
     const int margin = width / 20;
     const int rowHeight = 25;
     int top = margin;
-    HWND title = CreateWindow(L"STATIC", L"ReviveCE Mail (M5)", WS_CHILD | WS_VISIBLE | SS_CENTER,
+    HWND title = CreateWindow(L"STATIC", L"ReviveCE Mail (M6)", WS_CHILD | WS_VISIBLE | SS_CENTER,
         margin, top, width - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
     SendMessage(title, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight + margin / 2;
@@ -609,7 +800,7 @@ void CreateChildControls(HWND window)
         reinterpret_cast<HMENU>(IDC_APP_PASSWORD), GetModuleHandle(NULL), NULL);
     SendMessage(g_passwordEdit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight + margin / 2;
-    const int buttonWidth = (width - 4 * margin) / 3;
+    const int buttonWidth = (width - 5 * margin) / 4;
     g_runButton = CreateWindow(L"BUTTON", L"TEST TLS", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
         margin, top, buttonWidth, rowHeight + 5, window,
         reinterpret_cast<HMENU>(IDC_RUN_TEST), GetModuleHandle(NULL), NULL);
@@ -622,6 +813,10 @@ void CreateChildControls(HWND window)
         margin * 3 + buttonWidth * 2, top, buttonWidth, rowHeight + 5, window,
         reinterpret_cast<HMENU>(IDC_OPEN_MESSAGE), GetModuleHandle(NULL), NULL);
     SendMessage(g_openButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    g_composeButton = CreateWindow(L"BUTTON", L"COMPOSE", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        margin * 4 + buttonWidth * 3, top, buttonWidth, rowHeight + 5, window,
+        reinterpret_cast<HMENU>(IDC_COMPOSE), GetModuleHandle(NULL), NULL);
+    SendMessage(g_composeButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight + margin + 5;
     HWND inboxLabel = CreateWindow(L"STATIC", L"Select a message then OPEN. Do not re-enter password while app is open.", WS_CHILD | WS_VISIBLE,
         margin, top, width - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
@@ -661,6 +856,10 @@ ATOM RegisterReviveWindowClass(HINSTANCE instance)
     windowClass.lpszClassName = kReaderWindowClass;
     if (RegisterClass(&windowClass) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
         return 0;
+    windowClass.lpfnWndProc = ComposeWindowProc;
+    windowClass.lpszClassName = kComposeWindowClass;
+    if (RegisterClass(&windowClass) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+        return 0;
     return mainClass;
 }
 
@@ -692,6 +891,8 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         { BeginWorker(window, WORKER_INBOX_REFRESH, 0, 0); return 0; }
         if (LOWORD(wParam) == IDC_OPEN_MESSAGE && HIWORD(wParam) == BN_CLICKED)
         { OpenSelectedMessage(window); return 0; }
+        if (LOWORD(wParam) == IDC_COMPOSE && HIWORD(wParam) == BN_CLICKED)
+        { OpenCompose(); return 0; }
         if (LOWORD(wParam) == IDC_INBOX && HIWORD(wParam) == LBN_DBLCLK)
         { OpenSelectedMessage(window); return 0; }
         break;
@@ -721,6 +922,12 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         ShowMessageReader(body);
         return 0;
     }
+    case WM_REVIVE_SEND_RESULT:
+        if (g_composeStatus != NULL)
+            SetWindowText(g_composeStatus, wParam == REVIVE_SMTP_OK ?
+                          L"SENT. Gmail accepted the message." :
+                          MailFailureName(static_cast<int>(wParam)));
+        return 0;
     case WM_REVIVE_TEST_COMPLETE:
         if (g_workerThread != NULL)
         {
@@ -730,6 +937,9 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         EnableWindow(g_runButton, TRUE);
         EnableWindow(g_refreshButton, TRUE);
         EnableWindow(g_openButton, g_inboxCanOpen ? TRUE : FALSE);
+        EnableWindow(g_composeButton, TRUE);
+        if (g_composeSend != NULL)
+            EnableWindow(g_composeSend, TRUE);
         SetFocus(g_refreshButton);
         ReviveLog("APP", wParam ? "secure operation completed" : "secure operation failed", 0);
         return 0;
@@ -741,6 +951,8 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         ReviveImapClearCredentials(&g_sessionCredentials);
         if (g_readerWindow != NULL)
             DestroyWindow(g_readerWindow);
+        if (g_composeWindow != NULL)
+            DestroyWindow(g_composeWindow);
         g_mainWindow = NULL;
         PostQuitMessage(0);
         return 0;

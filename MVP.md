@@ -945,6 +945,12 @@ send through Gmail
 receive message elsewhere
 ```
 
+Current implementation note: M6 provides a bounded plain-text compose form.
+It makes a new verified implicit-TLS connection to `smtp.gmail.com:465`, uses
+the active in-memory App Password with `AUTH LOGIN`, then sends `MAIL FROM`,
+`RCPT TO`, and `DATA`. Attachments, HTML composition, drafts, and sent-mail
+listing remain later milestones.
+
 At this point:
 
 **ReviveCE Mail MVP works.**
