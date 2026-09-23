@@ -166,7 +166,7 @@ bool LoadCABundle(const wchar_t* path, unsigned char** contents, long* length)
     CloseHandle(file);
     *contents = buffer;
     *length = static_cast<long>(size);
-    ReviveLog("TLS", "CA bundle loaded", static_cast<int>(size));
+    ReviveLog("TLS", "CA bundle loaded", 0);
     return true;
 }
 
@@ -366,10 +366,12 @@ ReviveTlsResult ReviveTLSConnect(ReviveNetConnection* network,
         error = wolfSSL_get_error(connection->session, result);
         ReviveLog("TLS", "TLS handshake rejected", error);
 
-        /* Log the human-readable wolfSSL error name for diagnostics. */
+        /* wolfCrypt's name table does not cover every wolfSSL error code. */
         const char* errorName = wc_GetErrorString(error);
         if (errorName != NULL)
             ReviveLog("TLS", errorName, error);
+        else
+            ReviveLog("TLS", "wolfSSL returned an unmapped error", error);
 
         /* Log the wolfSSL alert codes received from the server. */
         WOLFSSL_ALERT_HISTORY alertHistory;

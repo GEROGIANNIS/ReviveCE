@@ -80,6 +80,8 @@ bool ReviveNetConnect(const char* host,
     connection->socketHandle = INVALID_SOCKET;
     connection->winsockStarted = false;
 
+    ReviveLogEndpoint("NET", "endpoint", host, port);
+
     result = WSAStartup(MAKEWORD(2, 2), &winsockData);
     if (result != 0)
     {
