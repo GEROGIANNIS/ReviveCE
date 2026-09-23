@@ -41,9 +41,9 @@ if ($workflow -notmatch 'verify-ce-pe\.sh') {
 }
 if ($workflow -notmatch 'build-revivetls\.sh' -or
     $workflow -notmatch 'build-wolfssl\.sh' -or
-    $workflow -notmatch 'ReviveTLS-M7-WM6-ARMV4I' -or
+    $workflow -notmatch 'ReviveTLS-M8-WM6-ARMV4I' -or
     $workflow -notmatch 'google-roots\.pem') {
-    throw 'Toolchain workflow does not build and upload the ReviveTLS M5 artifact.'
+    throw 'Toolchain workflow does not build and upload the ReviveTLS M8 artifact.'
 }
 if ($workflow -notmatch 'ac01707f552c611fbd135cc723b2682b3e7f80f2') {
     throw 'wolfSSL dependency is not pinned to the reviewed 5.9.2 release commit.'
@@ -134,10 +134,26 @@ foreach ($requiredHttpControl in @(
         throw "M7 HTTPS control is missing: $requiredHttpControl."
     }
 }
+$feedSource = (Get-Content -Raw -LiteralPath `
+    (Join-Path $repositoryRoot 'revivece\feeds\feed.cpp')) + "`n" +
+    (Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'revivece\feeds\feed.h')) + "`n" +
+    (Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'revivece\app\ui.cpp'))
+foreach ($requiredFeedControl in @(
+    'ReviveFeedParse',
+    'REVIVE_FEED_MAX_ITEMS',
+    'WORKER_FEED_FETCH',
+    'https://blog.google/feed/',
+    'RSS 2.0 and Atom 1.0'
+)) {
+    if ($feedSource -notmatch [regex]::Escape($requiredFeedControl)) {
+        throw "M8 feed control is missing: $requiredFeedControl."
+    }
+}
 foreach ($requiredSource in @(
     'app/main.cpp',
     'app/ui.cpp',
     'common/log.cpp',
+    'feeds/feed.cpp',
     'net/socket.cpp',
     'net/tls.cpp',
     'mail/imap.cpp',

@@ -5,7 +5,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPTSTR, int showCommand)
 {
     MSG message;
 
-    ReviveLog("APP", "ReviveCE Mail M7 starting", 0);
+    ReviveLog("APP", "ReviveCE Mail M8 starting", 0);
     if (!RegisterReviveWindowClass(instance))
     {
         const DWORD nativeError = GetLastError();

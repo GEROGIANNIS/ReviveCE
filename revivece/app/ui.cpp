@@ -3,6 +3,7 @@
 #include "../net/socket.h"
 #include "../net/tls.h"
 #include "../net/http.h"
+#include "../feeds/feed.h"
 #include "ui.h"
 
 #include "resource.h"
@@ -14,9 +15,11 @@ const wchar_t* const kWindowClass = L"ReviveTLSWindow";
 const wchar_t* const kReaderWindowClass = L"ReviveCEReaderWindow";
 const wchar_t* const kComposeWindowClass = L"ReviveCEComposeWindow";
 const wchar_t* const kHttpWindowClass = L"ReviveCEHttpWindow";
+const wchar_t* const kFeedWindowClass = L"ReviveCEFeedWindow";
 const int kReaderLoadMoreControl = 2001;
 const int kComposeSendControl = 2002;
 const int kHttpFetchControl = 2003;
+const int kFeedFetchControl = 2004;
 const char* const kImapServerHost = "imap.gmail.com";
 const unsigned short kImapServerPort = 993;
 const char* const kSmtpServerHost = "smtp.gmail.com";
@@ -25,7 +28,7 @@ const DWORD kConnectTimeoutMilliseconds = 15000;
 const wchar_t* const kCABundleFileName = L"google-roots.pem";
 
 enum WorkerMode { WORKER_TLS_TEST = 0, WORKER_INBOX_REFRESH, WORKER_MESSAGE_FETCH,
-                  WORKER_SMTP_SEND, WORKER_HTTP_GET };
+                  WORKER_SMTP_SEND, WORKER_HTTP_GET, WORKER_FEED_FETCH };
 struct WorkerRequest
 {
     HWND window;
@@ -43,6 +46,7 @@ HWND g_refreshButton = NULL;
 HWND g_openButton = NULL;
 HWND g_composeButton = NULL;
 HWND g_webButton = NULL;
+HWND g_feedsButton = NULL;
 HWND g_emailEdit = NULL;
 HWND g_passwordEdit = NULL;
 HWND g_passwordToggle = NULL;
@@ -68,6 +72,11 @@ HWND g_httpUrl = NULL;
 HWND g_httpFetch = NULL;
 HWND g_httpStatus = NULL;
 HWND g_httpBody = NULL;
+HWND g_feedWindow = NULL;
+HWND g_feedUrl = NULL;
+HWND g_feedFetch = NULL;
+HWND g_feedStatus = NULL;
+HWND g_feedItems = NULL;
 ReviveImapCredentials g_sessionCredentials;
 bool g_inboxCanOpen = false;
 
@@ -149,6 +158,9 @@ const wchar_t* MailFailureName(int result)
     case REVIVE_HTTP_STATUS_ERROR: return L"HTTP STATUS NOT OK";
     case REVIVE_HTTP_HEADER_TOO_LARGE: return L"HTTP HEADERS TOO LARGE";
     case REVIVE_HTTP_ENCODING_ERROR: return L"HTTP CONTENT ENCODING";
+    case REVIVE_FEED_CONFIGURATION_ERROR: return L"FEED URL INVALID";
+    case REVIVE_FEED_FORMAT_ERROR: return L"RSS OR ATOM INVALID";
+    case REVIVE_FEED_NO_ITEMS: return L"NO FEED ITEMS";
     default: return L"SERVICE FAILED";
     }
 }
@@ -266,6 +278,38 @@ void PostHttpResponse(HWND window, ReviveHttpResult result, int status,
         HeapFree(GetProcessHeap(), 0, copied);
 }
 
+void PostFeedItem(HWND window, const ReviveFeedItem* item)
+{
+    ReviveUiFeedItem* copied = static_cast<ReviveUiFeedItem*>(
+        HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ReviveUiFeedItem)));
+    if (copied == NULL || item == NULL)
+    {
+        if (copied != NULL)
+            HeapFree(GetProcessHeap(), 0, copied);
+        return;
+    }
+    CopyUtf8ToWide(copied->title, sizeof(copied->title) / sizeof(wchar_t), item->title);
+    CopyUtf8ToWide(copied->link, sizeof(copied->link) / sizeof(wchar_t), item->link);
+    CopyUtf8ToWide(copied->date, sizeof(copied->date) / sizeof(wchar_t), item->date);
+    if (!PostMessage(window, WM_REVIVE_FEED_ITEM, 0, reinterpret_cast<LPARAM>(copied)))
+        HeapFree(GetProcessHeap(), 0, copied);
+}
+
+void PostFeedResult(HWND window, int result, int httpStatus, int itemCount,
+                    bool atomFormat)
+{
+    ReviveUiFeedResult* copied = static_cast<ReviveUiFeedResult*>(
+        HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ReviveUiFeedResult)));
+    if (copied == NULL)
+        return;
+    copied->result = result;
+    copied->httpStatus = httpStatus;
+    copied->itemCount = itemCount;
+    copied->atomFormat = atomFormat;
+    if (!PostMessage(window, WM_REVIVE_FEED_RESULT, 0, reinterpret_cast<LPARAM>(copied)))
+        HeapFree(GetProcessHeap(), 0, copied);
+}
+
 void PostTlsSuccess(HWND window)
 {
     PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_OK, 0);
@@ -294,11 +338,12 @@ DWORD WINAPI NetworkWorker(void* context)
     wchar_t caBundlePath[MAX_PATH];
     bool succeeded = false;
     const bool sending = request->mode == WORKER_SMTP_SEND;
-    const bool gettingHttp = request->mode == WORKER_HTTP_GET;
+    const bool fetchingHttp = request->mode == WORKER_HTTP_GET ||
+                              request->mode == WORKER_FEED_FETCH;
     ReviveSmtpResult sendResult = REVIVE_SMTP_IO_ERROR;
-    const char* serverHost = gettingHttp ? request->httpUrl.host :
+    const char* serverHost = fetchingHttp ? request->httpUrl.host :
                              sending ? kSmtpServerHost : kImapServerHost;
-    const unsigned short serverPort = gettingHttp ? request->httpUrl.port :
+    const unsigned short serverPort = fetchingHttp ? request->httpUrl.port :
                                      sending ? kSmtpServerPort : kImapServerPort;
     const bool connected = ReviveNetConnect(serverHost, serverPort,
         kConnectTimeoutMilliseconds, &connection, NetworkProgress, window);
@@ -401,7 +446,7 @@ DWORD WINAPI NetworkWorker(void* context)
                                static_cast<int>(sendResult));
                 }
             }
-            else
+            else if (request->mode == WORKER_HTTP_GET)
             {
                 char* response = static_cast<char*>(HeapAlloc(GetProcessHeap(),
                     HEAP_ZERO_MEMORY, REVIVE_HTTP_RESPONSE_CAPACITY + 1));
@@ -426,6 +471,55 @@ DWORD WINAPI NetworkWorker(void* context)
                     PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_FAILED,
                                static_cast<int>(httpResult));
                     PostHttpResponse(window, httpResult, httpStatus, NULL, false);
+                }
+                if (response != NULL)
+                {
+                    ClearBytes(response, REVIVE_HTTP_RESPONSE_CAPACITY + 1);
+                    HeapFree(GetProcessHeap(), 0, response);
+                }
+            }
+            else
+            {
+                char* response = static_cast<char*>(HeapAlloc(GetProcessHeap(),
+                    HEAP_ZERO_MEMORY, REVIVE_HTTP_RESPONSE_CAPACITY + 1));
+                ReviveFeedItem* items = static_cast<ReviveFeedItem*>(HeapAlloc(
+                    GetProcessHeap(), HEAP_ZERO_MEMORY,
+                    sizeof(ReviveFeedItem) * REVIVE_FEED_MAX_ITEMS));
+                int httpStatus = 0;
+                int itemCount = 0;
+                bool truncated = false;
+                bool atomFormat = false;
+                ReviveHttpResult httpResult = REVIVE_HTTP_IO_ERROR;
+                ReviveFeedResult feedResult = REVIVE_FEED_CONFIGURATION_ERROR;
+                PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_RUNNING, 0);
+                if (response != NULL)
+                    httpResult = ReviveHttpGet(tlsConnection, &request->httpUrl,
+                                                response, REVIVE_HTTP_RESPONSE_CAPACITY + 1,
+                                                &httpStatus, &truncated);
+                if (httpResult == REVIVE_HTTP_OK && items != NULL)
+                    feedResult = ReviveFeedParse(response, items, REVIVE_FEED_MAX_ITEMS,
+                                                 &itemCount, &atomFormat);
+                if (httpResult == REVIVE_HTTP_OK && feedResult == REVIVE_FEED_OK)
+                {
+                    for (int index = 0; index < itemCount; ++index)
+                        PostFeedItem(window, &items[index]);
+                    ReviveLog("FEED", "RSS or Atom items parsed", itemCount);
+                    PostFeedResult(window, REVIVE_FEED_OK, httpStatus, itemCount, atomFormat);
+                    PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_OK, 0);
+                    succeeded = true;
+                }
+                else
+                {
+                    const int result = httpResult != REVIVE_HTTP_OK ?
+                        static_cast<int>(httpResult) : static_cast<int>(feedResult);
+                    ReviveLog("FEED", "feed refresh failed", result);
+                    PostFeedResult(window, result, httpStatus, 0, false);
+                    PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_FAILED, result);
+                }
+                if (items != NULL)
+                {
+                    ClearBytes(items, sizeof(ReviveFeedItem) * REVIVE_FEED_MAX_ITEMS);
+                    HeapFree(GetProcessHeap(), 0, items);
                 }
                 if (response != NULL)
                 {
@@ -561,10 +655,11 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
         SetRow(REVIVE_UI_IMAP, REVIVE_UI_FAILED, REVIVE_SMTP_CONFIGURATION_ERROR);
         return;
     }
-    if (mode == WORKER_HTTP_GET)
+    if (mode == WORKER_HTTP_GET || mode == WORKER_FEED_FETCH)
     {
         char urlText[REVIVE_HTTP_URL_CAPACITY];
-        const bool validUrl = CopyEditUtf8(g_httpUrl, urlText, sizeof(urlText)) &&
+        HWND urlControl = mode == WORKER_FEED_FETCH ? g_feedUrl : g_httpUrl;
+        const bool validUrl = CopyEditUtf8(urlControl, urlText, sizeof(urlText)) &&
                               ReviveHttpParseUrl(urlText, &request->httpUrl);
         ClearBytes(urlText, sizeof(urlText));
         if (!validUrl)
@@ -591,6 +686,7 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
     EnableWindow(g_openButton, FALSE);
     EnableWindow(g_composeButton, FALSE);
     EnableWindow(g_webButton, FALSE);
+    EnableWindow(g_feedsButton, FALSE);
     g_workerThread = CreateThread(NULL, 0, NetworkWorker, request, 0, &threadId);
     if (g_workerThread == NULL)
     {
@@ -603,10 +699,13 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
         EnableWindow(g_openButton, g_inboxCanOpen ? TRUE : FALSE);
         EnableWindow(g_composeButton, TRUE);
         EnableWindow(g_webButton, TRUE);
+        EnableWindow(g_feedsButton, TRUE);
         if (g_readerLoadMore != NULL)
             EnableWindow(g_readerLoadMore, g_readerHasMore ? TRUE : FALSE);
         if (g_httpFetch != NULL)
             EnableWindow(g_httpFetch, TRUE);
+        if (g_feedFetch != NULL)
+            EnableWindow(g_feedFetch, TRUE);
     }
 }
 
@@ -843,6 +942,133 @@ void OpenHttp()
     }
 }
 
+LRESULT CALLBACK FeedWindowProc(HWND window, UINT message,
+                                WPARAM wParam, LPARAM lParam)
+{
+    switch (message)
+    {
+    case WM_CREATE:
+    {
+        RECT client;
+        HFONT font = static_cast<HFONT>(GetStockObject(SYSTEM_FONT));
+        const int margin = 12;
+        const int rowHeight = 24;
+        int buttonWidth;
+        int listTop;
+        GetClientRect(window, &client);
+        buttonWidth = (client.right - 3 * margin) / 2;
+        HWND urlLabel = CreateWindow(L"STATIC", L"Feed URL:", WS_CHILD | WS_VISIBLE,
+            margin, margin, 60, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+        SendMessage(urlLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_feedUrl = CreateWindow(L"EDIT", L"https://blog.google/feed/",
+            WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL,
+            margin + 60, margin, client.right - 2 * margin - 60, rowHeight, window,
+            NULL, GetModuleHandle(NULL), NULL);
+        SendMessage(g_feedUrl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_feedFetch = CreateWindow(L"BUTTON", L"REFRESH", WS_CHILD | WS_VISIBLE |
+            WS_TABSTOP | BS_DEFPUSHBUTTON, margin, margin + rowHeight + 5, buttonWidth,
+            rowHeight, window, reinterpret_cast<HMENU>(kFeedFetchControl),
+            GetModuleHandle(NULL), NULL);
+        SendMessage(g_feedFetch, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+            margin * 2 + buttonWidth, margin + rowHeight + 5, buttonWidth,
+            rowHeight, window, reinterpret_cast<HMENU>(IDOK), GetModuleHandle(NULL), NULL);
+        SendMessage(backButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_feedStatus = CreateWindow(L"STATIC", L"RSS 2.0 and Atom 1.0. No feed is saved yet.",
+            WS_CHILD | WS_VISIBLE, margin, margin + (rowHeight + 5) * 2,
+            client.right - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+        SendMessage(g_feedStatus, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        listTop = margin + (rowHeight + 5) * 3;
+        g_feedItems = CreateWindow(L"LISTBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER |
+            WS_VSCROLL | LBS_NOINTEGRALHEIGHT, margin, listTop,
+            client.right - 2 * margin, client.bottom - listTop - margin, window, NULL,
+            GetModuleHandle(NULL), NULL);
+        SendMessage(g_feedItems, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        SetFocus(g_feedUrl);
+        return 0;
+    }
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDOK && HIWORD(wParam) == BN_CLICKED)
+        {
+            DestroyWindow(window);
+            return 0;
+        }
+        if (LOWORD(wParam) == kFeedFetchControl && HIWORD(wParam) == BN_CLICKED)
+        {
+            SendMessage(g_feedItems, LB_RESETCONTENT, 0, 0);
+            SetWindowText(g_feedStatus, L"FETCHING FEED...");
+            EnableWindow(g_feedFetch, FALSE);
+            BeginWorker(g_mainWindow, WORKER_FEED_FETCH, 0, 0);
+            if (g_workerThread == NULL)
+            {
+                SetWindowText(g_feedStatus, L"ENTER A VALID HTTPS FEED URL");
+                EnableWindow(g_feedFetch, TRUE);
+            }
+            return 0;
+        }
+        break;
+    case WM_CLOSE:
+        DestroyWindow(window);
+        return 0;
+    case WM_DESTROY:
+        g_feedWindow = NULL;
+        g_feedUrl = NULL;
+        g_feedFetch = NULL;
+        g_feedStatus = NULL;
+        g_feedItems = NULL;
+        return 0;
+    }
+    return DefWindowProc(window, message, wParam, lParam);
+}
+
+void AddFeedItem(const ReviveUiFeedItem* item)
+{
+    wchar_t text[320];
+    const wchar_t* title;
+    if (item == NULL || g_feedItems == NULL)
+        return;
+    title = item->title[0] != L'\0' ? item->title : L"(untitled item)";
+    if (item->date[0] != L'\0')
+        wsprintf(text, L"%s (%s)", title, item->date);
+    else
+        wsprintf(text, L"%s", title);
+    SendMessage(g_feedItems, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
+}
+
+void ShowFeedResult(ReviveUiFeedResult* result)
+{
+    wchar_t status[160];
+    if (result == NULL)
+        return;
+    if (g_feedStatus != NULL && result->result == REVIVE_FEED_OK)
+    {
+        wsprintf(status, L"HTTP %d. %d %s items.", result->httpStatus, result->itemCount,
+                 result->atomFormat ? L"Atom" : L"RSS");
+        SetWindowText(g_feedStatus, status);
+    }
+    else if (g_feedStatus != NULL)
+        SetWindowText(g_feedStatus, MailFailureName(result->result));
+    HeapFree(GetProcessHeap(), 0, result);
+}
+
+void OpenFeeds()
+{
+    if (g_feedWindow != NULL)
+    {
+        ShowWindow(g_feedWindow, SW_SHOW);
+        return;
+    }
+    g_feedWindow = CreateWindow(kFeedWindowClass, L"ReviveCE Feeds",
+        WS_VISIBLE | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT,
+        GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), NULL, NULL,
+        GetModuleHandle(NULL), NULL);
+    if (g_feedWindow != NULL)
+    {
+        ShowWindow(g_feedWindow, SW_SHOW);
+        UpdateWindow(g_feedWindow);
+    }
+}
+
 void OpenSelectedMessage(HWND window)
 {
     const int selected = SendMessage(g_inbox, LB_GETCURSEL, 0, 0);
@@ -1015,7 +1241,7 @@ void CreateChildControls(HWND window)
     const int passwordEditWidth = width - (2 * margin + credentialLabelWidth +
                                             passwordToggleWidth + 4);
     int top = margin;
-    HWND title = CreateWindow(L"STATIC", L"ReviveCE Mail (M7)", WS_CHILD | WS_VISIBLE | SS_CENTER,
+    HWND title = CreateWindow(L"STATIC", L"ReviveCE Mail (M8)", WS_CHILD | WS_VISIBLE | SS_CENTER,
         margin, top, width - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
     SendMessage(title, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight + margin / 2;
@@ -1071,9 +1297,13 @@ void CreateChildControls(HWND window)
     SendMessage(g_composeButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += buttonHeight + margin / 2;
     g_webButton = CreateWindow(L"BUTTON", L"WEB GET", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        margin, top, width - 2 * margin, buttonHeight, window,
+        margin, top, buttonWidth, buttonHeight, window,
         reinterpret_cast<HMENU>(IDC_WEB_GET), GetModuleHandle(NULL), NULL);
     SendMessage(g_webButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    g_feedsButton = CreateWindow(L"BUTTON", L"FEEDS", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        margin * 2 + buttonWidth, top, buttonWidth, buttonHeight, window,
+        reinterpret_cast<HMENU>(IDC_FEEDS), GetModuleHandle(NULL), NULL);
+    SendMessage(g_feedsButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += buttonHeight + margin / 2;
     HWND inboxLabel = CreateWindow(L"STATIC", L"REFRESH loads mail. Select a row, then OPEN.", WS_CHILD | WS_VISIBLE,
         margin, top, width - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
@@ -1121,6 +1351,10 @@ ATOM RegisterReviveWindowClass(HINSTANCE instance)
     windowClass.lpszClassName = kHttpWindowClass;
     if (RegisterClass(&windowClass) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
         return 0;
+    windowClass.lpfnWndProc = FeedWindowProc;
+    windowClass.lpszClassName = kFeedWindowClass;
+    if (RegisterClass(&windowClass) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+        return 0;
     return mainClass;
 }
 
@@ -1165,6 +1399,8 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         { OpenCompose(); return 0; }
         if (LOWORD(wParam) == IDC_WEB_GET && HIWORD(wParam) == BN_CLICKED)
         { OpenHttp(); return 0; }
+        if (LOWORD(wParam) == IDC_FEEDS && HIWORD(wParam) == BN_CLICKED)
+        { OpenFeeds(); return 0; }
         if (LOWORD(wParam) == IDC_INBOX && HIWORD(wParam) == LBN_DBLCLK)
         { OpenSelectedMessage(window); return 0; }
         break;
@@ -1203,6 +1439,19 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
     case WM_REVIVE_HTTP_RESPONSE:
         ShowHttpResponse(reinterpret_cast<ReviveUiHttpResponse*>(lParam));
         return 0;
+    case WM_REVIVE_FEED_ITEM:
+    {
+        ReviveUiFeedItem* item = reinterpret_cast<ReviveUiFeedItem*>(lParam);
+        if (item != NULL)
+        {
+            AddFeedItem(item);
+            HeapFree(GetProcessHeap(), 0, item);
+        }
+        return 0;
+    }
+    case WM_REVIVE_FEED_RESULT:
+        ShowFeedResult(reinterpret_cast<ReviveUiFeedResult*>(lParam));
+        return 0;
     case WM_REVIVE_TEST_COMPLETE:
         if (g_workerThread != NULL)
         {
@@ -1214,10 +1463,13 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         EnableWindow(g_openButton, g_inboxCanOpen ? TRUE : FALSE);
         EnableWindow(g_composeButton, TRUE);
         EnableWindow(g_webButton, TRUE);
+        EnableWindow(g_feedsButton, TRUE);
         if (g_composeSend != NULL)
             EnableWindow(g_composeSend, TRUE);
         if (g_httpFetch != NULL)
             EnableWindow(g_httpFetch, TRUE);
+        if (g_feedFetch != NULL)
+            EnableWindow(g_feedFetch, TRUE);
         SetFocus(g_refreshButton);
         ReviveLog("APP", wParam ? "secure operation completed" : "secure operation failed", 0);
         return 0;
@@ -1233,6 +1485,8 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
             DestroyWindow(g_composeWindow);
         if (g_httpWindow != NULL)
             DestroyWindow(g_httpWindow);
+        if (g_feedWindow != NULL)
+            DestroyWindow(g_feedWindow);
         g_mainWindow = NULL;
         PostQuitMessage(0);
         return 0;

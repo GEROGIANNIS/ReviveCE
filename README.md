@@ -6,7 +6,7 @@ Windows Mobile 6.1 Professional on ARMV4I.
 
 ## Current milestone
 
-The repository currently contains the **M0-M7 ReviveTLS mail and HTTPS proof application**:
+The repository currently contains the **M0-M8 ReviveTLS mail, HTTPS, and feed proof application**:
 
 - a native Win32/Windows CE user interface sized for a 480 x 640 device;
 - a worker-thread network test so DNS timeouts do not freeze the UI;
@@ -38,6 +38,8 @@ The repository currently contains the **M0-M7 ReviveTLS mail and HTTPS proof app
   Gmail SMTP over a separate, certificate-verified TLS 1.2 connection.
 - a bounded HTTPS `GET` screen supporting verified `https://` URLs, ordinary
   and chunked HTTP/1.1 bodies, and an identity-encoded 32 KiB text prefix.
+- an RSS 2.0 and Atom 1.0 feed screen that retrieves up to 25 item titles,
+  publication dates, and links through that same verified HTTPS path.
 
 ## Device-test progress
 
@@ -62,10 +64,16 @@ in-memory Gmail App Password, performs SMTP `EHLO` and `AUTH LOGIN`, then sends
 a plain-text UTF-8 message with bounded recipient, subject, and body fields.
 It has no attachments, HTML composition, drafts, or sent-mail view yet.
 
-M7 is implemented and awaits physical-device confirmation. The **WEB GET**
+M7 is confirmed on the physical phone. The **WEB GET**
 screen starts with `https://www.google.com/robots.txt`; it verifies the URL's
 hostname and certificate before showing a bounded response. Redirects,
 compressed responses, downloads, and cookies are intentionally deferred.
+
+M8 adds **FEEDS**, prefilled with `https://blog.google/feed/`. It downloads a
+single HTTPS RSS 2.0 or Atom 1.0 document and lists up to 25 titles with dates.
+Feeds are not saved, article pages and summaries cannot be opened yet, and the
+32 KiB HTTP response bound still applies. Its next acceptance test is on the
+physical phone.
 
 The build reports TLS, certificate, hostname, and SERVICE status separately. Any
 missing bundle, failed handshake, invalid chain, hostname mismatch, or missing
@@ -73,7 +81,7 @@ server greeting rejects the connection; plaintext fallback is never attempted.
 
 The canonical build machine is GitHub Actions. The workflow uses a
 digest-pinned, open-source CeGCC 9.3 container to build both the proven ARM
-HelloWorld smoke test and the M7 `ReviveTLS.exe`. It rejects either result
+HelloWorld smoke test and the M8 `ReviveTLS.exe`. It rejects either result
 unless its PE headers identify it as an ARM Windows CE 5.2 GUI program. No
 repository secrets or proprietary compiler downloads are required.
 
@@ -114,6 +122,11 @@ server accepted it for delivery, not that a recipient has read it.
 Tap **WEB GET** to open the HTTPS test screen. Enter an `https://` URL and tap
 **GET**. The response view shows at most 32 KiB and labels a truncated result.
 
+Tap **FEEDS** to fetch an HTTPS RSS or Atom feed. The initial URL is Google
+Blog's feed. **REFRESH** clears the old list, then displays up to 25 item titles
+and dates after a verified response. The app currently does not save feeds or
+open individual articles.
+
 ## Layout
 
 ```text
@@ -123,6 +136,7 @@ ci/                       ARMV4I bootstrap, build, and PE verification
 revivece/
   app/                    WinCE application and UI
   common/                 diagnostics
+  feeds/                  bounded RSS and Atom display parser
   net/                    DNS, TCP, and TLS boundary
   tests/                  repository validation
 docs/                     build and porting notes

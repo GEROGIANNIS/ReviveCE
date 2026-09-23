@@ -12,7 +12,7 @@ See `ci/README.md` for the pinned toolchain and source repositories.
 
 Run **WM6 ARMV4I Toolchain Test** manually from the repository's Actions tab.
 It can also run after changes to the workflow or `ci/` scripts. Its downloadable
-artifacts are `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M7-WM6-ARMV4I`.
+artifacts are `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M8-WM6-ARMV4I`.
 
 ## First device test: CI0-CI4
 
@@ -22,7 +22,7 @@ artifacts are `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M7-WM6-ARMV4I`.
 4. Check the included SHA-256.
 5. Copy `HelloWorld.exe` to the HTC Touch Pro and launch it.
 
-After HelloWorld launches, download `ReviveTLS-M7-WM6-ARMV4I`. Copy both
+After HelloWorld launches, download `ReviveTLS-M8-WM6-ARMV4I`. Copy both
 `ReviveTLS.exe` and `google-roots.pem` into the same directory on the phone,
 then run the test over Wi-Fi. wolfSSL is linked statically, so no companion DLL
 is required; the PEM file is ReviveCE's independently updateable trust store.
@@ -50,7 +50,7 @@ If the localized SDK installed on the development machine uses a different
 platform display name, use Visual Studio's Configuration Manager to retarget
 the project to its installed ARMV4I Windows Mobile 6 Professional platform.
 
-## M4 inbox, M5 reader, M6 send, and M7 HTTPS test
+## M4 inbox, M5 reader, M6 send, M7 HTTPS, and M8 feed test
 
 The same executable includes the M4 inbox proof and M5 message reader. Enter a Gmail address
 and an eligible Gmail **App Password**, then tap **REFRESH INBOX**. The password
@@ -83,6 +83,12 @@ Tap **WEB GET** for the M7 HTTPS proof. The prefilled
 only `https://` URLs, verifies the entered hostname and certificate chain, and
 shows the first 32 KiB of an identity-encoded HTTP response. Redirects,
 compressed content, downloads, and cookies are not supported yet.
+
+Tap **FEEDS** for the M8 feed proof. It starts with
+`https://blog.google/feed/`; tap **REFRESH** to fetch the feed over verified
+HTTPS. A successful result reports its HTTP status and the number of RSS or
+Atom entries displayed. The current reader lists at most 25 titles and dates;
+it does not yet save feeds or open article pages.
 
 ## Expected TLS test result
 
@@ -130,6 +136,8 @@ payloads.
   recipient receives it.
 - **M7:** the physical phone fetches and displays a verified HTTPS response
   from the M7 test URL.
+- **M8:** the physical phone fetches a verified HTTPS RSS or Atom feed and
+  displays its item list.
 
 An emulator run does not count as device acceptance. All five rows must report
 `OK`; a successful TCP connection alone is not a TLS handshake.

@@ -19,6 +19,7 @@
 #define IDC_COMPOSE                      1016
 #define IDC_TOGGLE_PASSWORD              1017
 #define IDC_WEB_GET                      1018
+#define IDC_FEEDS                        1019
 
 #define WM_REVIVE_STATUS                (WM_APP + 1)
 #define WM_REVIVE_TEST_COMPLETE         (WM_APP + 2)
@@ -26,5 +27,7 @@
 #define WM_REVIVE_MESSAGE_BODY            (WM_APP + 4)
 #define WM_REVIVE_SEND_RESULT             (WM_APP + 5)
 #define WM_REVIVE_HTTP_RESPONSE           (WM_APP + 6)
+#define WM_REVIVE_FEED_ITEM               (WM_APP + 7)
+#define WM_REVIVE_FEED_RESULT             (WM_APP + 8)
 
 #endif

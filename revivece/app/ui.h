@@ -3,6 +3,7 @@
 
 #include "../mail/imap.h"
 #include "../net/http.h"
+#include "../feeds/feed.h"
 
 #include <windows.h>
 
@@ -60,6 +61,21 @@ struct ReviveUiHttpResponse
     int status;
     bool truncated;
     wchar_t body[REVIVE_HTTP_RESPONSE_CAPACITY + 1];
+};
+
+struct ReviveUiFeedItem
+{
+    wchar_t title[REVIVE_FEED_TITLE_CAPACITY];
+    wchar_t link[REVIVE_FEED_LINK_CAPACITY];
+    wchar_t date[REVIVE_FEED_DATE_CAPACITY];
+};
+
+struct ReviveUiFeedResult
+{
+    int result;
+    int httpStatus;
+    int itemCount;
+    bool atomFormat;
 };
 
 ATOM RegisterReviveWindowClass(HINSTANCE instance);

@@ -108,6 +108,7 @@
 			<File RelativePath=".\app\main.cpp"/>
 			<File RelativePath=".\app\ui.cpp"/>
 			<File RelativePath=".\common\log.cpp"/>
+			<File RelativePath=".\feeds\feed.cpp"/>
 			<File RelativePath=".\mail\imap.cpp"/>
 			<File RelativePath=".\mail\smtp.cpp"/>
 			<File RelativePath=".\net\socket.cpp"/>
@@ -118,6 +119,7 @@
 			<File RelativePath=".\app\resource.h"/>
 			<File RelativePath=".\app\ui.h"/>
 			<File RelativePath=".\common\log.h"/>
+			<File RelativePath=".\feeds\feed.h"/>
 			<File RelativePath=".\mail\imap.h"/>
 			<File RelativePath=".\mail\smtp.h"/>
 			<File RelativePath=".\net\socket.h"/>

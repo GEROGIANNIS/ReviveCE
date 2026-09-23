@@ -29,7 +29,7 @@ grep -Eq 'ghcr\.io/enlyze/windows-ce-build-environment-arm@sha256:[0-9a-f]{64}' 
 grep -q 'verify-ce-pe.sh' "${workflow}"
 grep -q 'build-revivetls.sh' "${workflow}"
 grep -q 'build-wolfssl.sh' "${workflow}"
-grep -q 'ReviveTLS-M7-WM6-ARMV4I' "${workflow}"
+grep -q 'ReviveTLS-M8-WM6-ARMV4I' "${workflow}"
 grep -q 'ac01707f552c611fbd135cc723b2682b3e7f80f2' "${workflow}"
 
 if grep -q 'windows-latest' "${workflow}"; then
@@ -64,9 +64,20 @@ if ! grep -q 'libwolfssl.a' ci/build-revivetls.sh; then
     echo "ERROR: ReviveTLS CI build does not link the pinned wolfSSL library." >&2
     exit 1
 fi
-for required_source in app/main.cpp app/ui.cpp common/log.cpp mail/imap.cpp mail/smtp.cpp net/socket.cpp net/tls.cpp net/http.cpp; do
+for required_source in app/main.cpp app/ui.cpp common/log.cpp feeds/feed.cpp mail/imap.cpp mail/smtp.cpp net/socket.cpp net/tls.cpp net/http.cpp; do
     if ! grep -q "revivece/${required_source}" ci/build-revivetls.sh; then
         echo "ERROR: ReviveTLS CI build omits revivece/${required_source}." >&2
+        exit 1
+    fi
+done
+for required_feed_control in \
+    ReviveFeedParse \
+    REVIVE_FEED_MAX_ITEMS \
+    WORKER_FEED_FETCH \
+    'https://blog.google/feed/' \
+    'RSS 2.0 and Atom 1.0'; do
+    if ! grep -Fq "${required_feed_control}" revivece/feeds/feed.cpp revivece/feeds/feed.h revivece/app/ui.cpp; then
+        echo "ERROR: M8 feed control is missing: ${required_feed_control}." >&2
         exit 1
     fi
 done
