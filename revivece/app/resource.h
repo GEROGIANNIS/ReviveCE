@@ -18,11 +18,13 @@
 #define IDC_OPEN_MESSAGE                 1015
 #define IDC_COMPOSE                      1016
 #define IDC_TOGGLE_PASSWORD              1017
+#define IDC_WEB_GET                      1018
 
 #define WM_REVIVE_STATUS                (WM_APP + 1)
 #define WM_REVIVE_TEST_COMPLETE         (WM_APP + 2)
 #define WM_REVIVE_INBOX_MESSAGE          (WM_APP + 3)
 #define WM_REVIVE_MESSAGE_BODY            (WM_APP + 4)
 #define WM_REVIVE_SEND_RESULT             (WM_APP + 5)
+#define WM_REVIVE_HTTP_RESPONSE           (WM_APP + 6)
 
 #endif

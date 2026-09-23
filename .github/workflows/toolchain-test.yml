@@ -57,7 +57,7 @@ jobs:
         shell: bash
         run: bash ./ci/build-wolfssl.sh
 
-      - name: Build ReviveTLS M6
+      - name: Build ReviveTLS M7
         shell: bash
         run: bash ./ci/build-revivetls.sh
 
@@ -78,7 +78,7 @@ jobs:
       - name: Upload ReviveTLS device test
         uses: actions/upload-artifact@v7
         with:
-          name: ReviveTLS-M6-WM6-ARMV4I
+          name: ReviveTLS-M7-WM6-ARMV4I
           path: |
             dist/ReviveTLS.exe
             dist/ReviveTLS.exe.sha256

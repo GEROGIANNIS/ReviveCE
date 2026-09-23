@@ -2,6 +2,7 @@
 #define REVIVECE_UI_H
 
 #include "../mail/imap.h"
+#include "../net/http.h"
 
 #include <windows.h>
 
@@ -51,6 +52,14 @@ struct ReviveUiMessageBody
     wchar_t date[80];
     wchar_t body[REVIVE_IMAP_BODY_CAPACITY + 2];
     bool usedHtmlFallback;
+};
+
+struct ReviveUiHttpResponse
+{
+    int result;
+    int status;
+    bool truncated;
+    wchar_t body[REVIVE_HTTP_RESPONSE_CAPACITY + 1];
 };
 
 ATOM RegisterReviveWindowClass(HINSTANCE instance);

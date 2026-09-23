@@ -12,7 +12,7 @@ See `ci/README.md` for the pinned toolchain and source repositories.
 
 Run **WM6 ARMV4I Toolchain Test** manually from the repository's Actions tab.
 It can also run after changes to the workflow or `ci/` scripts. Its downloadable
-artifacts are `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M6-WM6-ARMV4I`.
+artifacts are `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M7-WM6-ARMV4I`.
 
 ## First device test: CI0-CI4
 
@@ -22,7 +22,7 @@ artifacts are `WM6-ARMV4I-HelloWorld` and `ReviveTLS-M6-WM6-ARMV4I`.
 4. Check the included SHA-256.
 5. Copy `HelloWorld.exe` to the HTC Touch Pro and launch it.
 
-After HelloWorld launches, download `ReviveTLS-M6-WM6-ARMV4I`. Copy both
+After HelloWorld launches, download `ReviveTLS-M7-WM6-ARMV4I`. Copy both
 `ReviveTLS.exe` and `google-roots.pem` into the same directory on the phone,
 then run the test over Wi-Fi. wolfSSL is linked statically, so no companion DLL
 is required; the PEM file is ReviveCE's independently updateable trust store.
@@ -50,7 +50,7 @@ If the localized SDK installed on the development machine uses a different
 platform display name, use Visual Studio's Configuration Manager to retarget
 the project to its installed ARMV4I Windows Mobile 6 Professional platform.
 
-## M4 inbox, M5 reader, and M6 send test
+## M4 inbox, M5 reader, M6 send, and M7 HTTPS test
 
 The same executable includes the M4 inbox proof and M5 message reader. Enter a Gmail address
 and an eligible Gmail **App Password**, then tap **REFRESH INBOX**. The password
@@ -67,7 +67,7 @@ and basic HTML-to-text conversion are supported. The reader loads 8 KiB first;
 when **LOAD MORE** is enabled it re-fetches a larger prefix in 8 KiB increments
 up to 32 KiB. Do not re-enter the App Password for **OPEN**, **COMPOSE**, or a
 refresh of the same Gmail address while the app remains running. A successful
-operation reports `MAIL ... OK`; a readable IMAP
+operation reports `SERVICE ... OK`; a readable IMAP
 failure description identifies messages that exceed the current bound or use
 an unsupported format.
 
@@ -77,6 +77,12 @@ verified TLS connection to `smtp.gmail.com:465` and reuses the current
 in-memory App Password. `SENT. Gmail accepted the message.` confirms SMTP
 acceptance. Check the recipient mailbox separately. The compose form does not
 support attachments, HTML, drafts, or non-ASCII subjects yet.
+
+Tap **WEB GET** for the M7 HTTPS proof. The prefilled
+`https://www.google.com/robots.txt` is the initial test target. The app accepts
+only `https://` URLs, verifies the entered hostname and certificate chain, and
+shows the first 32 KiB of an identity-encoded HTTP response. Redirects,
+compressed content, downloads, and cookies are not supported yet.
 
 ## Expected TLS test result
 
@@ -122,6 +128,8 @@ payloads.
 - **M6:** after a successful refresh, the physical phone sends a plain-text
   message through Gmail SMTP over a separate verified TLS session and the
   recipient receives it.
+- **M7:** the physical phone fetches and displays a verified HTTPS response
+  from the M7 test URL.
 
 An emulator run does not count as device acceptance. All five rows must report
 `OK`; a successful TCP connection alone is not a TLS handshake.

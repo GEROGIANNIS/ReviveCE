@@ -91,7 +91,7 @@ bool ReviveNetConnect(const char* host,
     connection->winsockStarted = true;
 
     Report(progress, REVIVE_NET_DNS, REVIVE_NET_RUNNING, 0, progressContext);
-    ReviveLog("NET", "resolving imap.gmail.com", 0);
+    ReviveLog("NET", "resolving host", 0);
     hostEntry = gethostbyname(host);
     if (hostEntry == NULL || hostEntry->h_addr_list == NULL ||
         hostEntry->h_addr_list[0] == NULL)

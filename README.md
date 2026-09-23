@@ -6,7 +6,7 @@ Windows Mobile 6.1 Professional on ARMV4I.
 
 ## Current milestone
 
-The repository currently contains the **M0-M6 ReviveTLS mail proof application**:
+The repository currently contains the **M0-M7 ReviveTLS mail and HTTPS proof application**:
 
 - a native Win32/Windows CE user interface sized for a 480 x 640 device;
 - a worker-thread network test so DNS timeouts do not freeze the UI;
@@ -36,6 +36,8 @@ The repository currently contains the **M0-M6 ReviveTLS mail proof application**
   HTML is reduced to text when necessary.
 - a modeless compose screen that sends a bounded plain-text message through
   Gmail SMTP over a separate, certificate-verified TLS 1.2 connection.
+- a bounded HTTPS `GET` screen supporting verified `https://` URLs, ordinary
+  and chunked HTTP/1.1 bodies, and an identity-encoded 32 KiB text prefix.
 
 ## Device-test progress
 
@@ -55,18 +57,23 @@ prefix in 8 KiB increments, up to 32 KiB. This keeps each IMAP transfer bounded
 while avoiding MIME decoding errors at arbitrary chunk boundaries. Attachments
 are never downloaded; text beyond 32 KiB remains a later pagination task.
 
-M6 is implemented and awaits physical-device confirmation. It reuses the active
+M6 is confirmed on the physical phone. It reuses the active
 in-memory Gmail App Password, performs SMTP `EHLO` and `AUTH LOGIN`, then sends
 a plain-text UTF-8 message with bounded recipient, subject, and body fields.
 It has no attachments, HTML composition, drafts, or sent-mail view yet.
 
-The build reports TLS, certificate, hostname, and MAIL status separately. Any
+M7 is implemented and awaits physical-device confirmation. The **WEB GET**
+screen starts with `https://www.google.com/robots.txt`; it verifies the URL's
+hostname and certificate before showing a bounded response. Redirects,
+compressed responses, downloads, and cookies are intentionally deferred.
+
+The build reports TLS, certificate, hostname, and SERVICE status separately. Any
 missing bundle, failed handshake, invalid chain, hostname mismatch, or missing
 server greeting rejects the connection; plaintext fallback is never attempted.
 
 The canonical build machine is GitHub Actions. The workflow uses a
 digest-pinned, open-source CeGCC 9.3 container to build both the proven ARM
-HelloWorld smoke test and the M6 `ReviveTLS.exe`. It rejects either result
+HelloWorld smoke test and the M7 `ReviveTLS.exe`. It rejects either result
 unless its PE headers identify it as an ARM Windows CE 5.2 GUI program. No
 repository secrets or proprietary compiler downloads are required.
 
@@ -77,7 +84,7 @@ See [docs/BUILDING.md](docs/BUILDING.md) for CI setup and device deployment,
 ## What the app shows on the phone
 
 `ReviveCE Mail` opens with separate DNS, TCP, TLS 1.2, Certificate, Hostname,
-and MAIL status rows, followed by Gmail address and App Password inputs.
+and SERVICE status rows, followed by Gmail address and App Password inputs.
 `TEST TLS` proves the encrypted connection without logging in. `REFRESH INBOX`
 authenticates with the App Password, clears that edit field, and fills the list
 with up to 25 recent messages. Each row shows a `*` when unread, plus sender,
@@ -103,6 +110,9 @@ ASCII subject, and plain-text body, then tap **SEND**. The same temporary
 in-memory App Password is reused; the compose form and its message are not
 written to disk or logs. `SENT. Gmail accepted the message.` means Gmail's SMTP
 server accepted it for delivery, not that a recipient has read it.
+
+Tap **WEB GET** to open the HTTPS test screen. Enter an `https://` URL and tap
+**GET**. The response view shows at most 32 KiB and labels a truncated result.
 
 ## Layout
 

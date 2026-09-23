@@ -13,7 +13,7 @@ enum
 enum ReviveSmtpResult
 {
     // Keep SMTP failures distinct from the IMAP result values because both
-    // are reported through the shared MAIL status row.
+    // are reported through the shared SERVICE status row.
     REVIVE_SMTP_OK = 100,
     REVIVE_SMTP_CONFIGURATION_ERROR,
     REVIVE_SMTP_IO_ERROR,

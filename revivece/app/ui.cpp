@@ -2,6 +2,7 @@
 #include "../mail/smtp.h"
 #include "../net/socket.h"
 #include "../net/tls.h"
+#include "../net/http.h"
 #include "ui.h"
 
 #include "resource.h"
@@ -12,8 +13,10 @@ namespace
 const wchar_t* const kWindowClass = L"ReviveTLSWindow";
 const wchar_t* const kReaderWindowClass = L"ReviveCEReaderWindow";
 const wchar_t* const kComposeWindowClass = L"ReviveCEComposeWindow";
+const wchar_t* const kHttpWindowClass = L"ReviveCEHttpWindow";
 const int kReaderLoadMoreControl = 2001;
 const int kComposeSendControl = 2002;
+const int kHttpFetchControl = 2003;
 const char* const kImapServerHost = "imap.gmail.com";
 const unsigned short kImapServerPort = 993;
 const char* const kSmtpServerHost = "smtp.gmail.com";
@@ -22,7 +25,7 @@ const DWORD kConnectTimeoutMilliseconds = 15000;
 const wchar_t* const kCABundleFileName = L"google-roots.pem";
 
 enum WorkerMode { WORKER_TLS_TEST = 0, WORKER_INBOX_REFRESH, WORKER_MESSAGE_FETCH,
-                  WORKER_SMTP_SEND };
+                  WORKER_SMTP_SEND, WORKER_HTTP_GET };
 struct WorkerRequest
 {
     HWND window;
@@ -31,6 +34,7 @@ struct WorkerRequest
     unsigned long bodyBytes;
     ReviveImapCredentials credentials;
     ReviveSmtpMessage outgoing;
+    ReviveHttpUrl httpUrl;
 };
 
 HWND g_statusControls[REVIVE_UI_ROW_COUNT];
@@ -38,6 +42,7 @@ HWND g_runButton = NULL;
 HWND g_refreshButton = NULL;
 HWND g_openButton = NULL;
 HWND g_composeButton = NULL;
+HWND g_webButton = NULL;
 HWND g_emailEdit = NULL;
 HWND g_passwordEdit = NULL;
 HWND g_passwordToggle = NULL;
@@ -58,6 +63,11 @@ HWND g_composeSubject = NULL;
 HWND g_composeBody = NULL;
 HWND g_composeSend = NULL;
 HWND g_composeStatus = NULL;
+HWND g_httpWindow = NULL;
+HWND g_httpUrl = NULL;
+HWND g_httpFetch = NULL;
+HWND g_httpStatus = NULL;
+HWND g_httpBody = NULL;
 ReviveImapCredentials g_sessionCredentials;
 bool g_inboxCanOpen = false;
 
@@ -71,7 +81,7 @@ void ClearBytes(void* value, unsigned int length)
 const wchar_t* RowName(ReviveUiRow row)
 {
     static const wchar_t* const names[REVIVE_UI_ROW_COUNT] =
-    { L"DNS", L"TCP", L"TLS 1.2", L"Certificate", L"Hostname", L"MAIL" };
+    { L"DNS", L"TCP", L"TLS 1.2", L"Certificate", L"Hostname", L"SERVICE" };
     return names[row];
 }
 
@@ -133,7 +143,13 @@ const wchar_t* MailFailureName(int result)
     case REVIVE_SMTP_DATA_ERROR: return L"SMTP DATA FAILED";
     case REVIVE_SMTP_MESSAGE_ERROR: return L"MESSAGE REJECTED";
     case REVIVE_SMTP_RESPONSE_TOO_LARGE: return L"SMTP RESPONSE TOO LARGE";
-    default: return L"MAIL FAILED";
+    case REVIVE_HTTP_URL_ERROR: return L"HTTPS URL INVALID";
+    case REVIVE_HTTP_IO_ERROR: return L"HTTPS READ FAILED";
+    case REVIVE_HTTP_RESPONSE_ERROR: return L"HTTP RESPONSE INVALID";
+    case REVIVE_HTTP_STATUS_ERROR: return L"HTTP STATUS NOT OK";
+    case REVIVE_HTTP_HEADER_TOO_LARGE: return L"HTTP HEADERS TOO LARGE";
+    case REVIVE_HTTP_ENCODING_ERROR: return L"HTTP CONTENT ENCODING";
+    default: return L"SERVICE FAILED";
     }
 }
 
@@ -235,6 +251,21 @@ void PostSendResult(HWND window, ReviveSmtpResult result)
                 static_cast<WPARAM>(result), 0);
 }
 
+void PostHttpResponse(HWND window, ReviveHttpResult result, int status,
+                      const char* body, bool truncated)
+{
+    ReviveUiHttpResponse* copied = static_cast<ReviveUiHttpResponse*>(
+        HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ReviveUiHttpResponse)));
+    if (copied == NULL)
+        return;
+    copied->result = static_cast<int>(result);
+    copied->status = status;
+    copied->truncated = truncated;
+    CopyUtf8ToWide(copied->body, sizeof(copied->body) / sizeof(wchar_t), body);
+    if (!PostMessage(window, WM_REVIVE_HTTP_RESPONSE, 0, reinterpret_cast<LPARAM>(copied)))
+        HeapFree(GetProcessHeap(), 0, copied);
+}
+
 void PostTlsSuccess(HWND window)
 {
     PostStatus(window, REVIVE_UI_TLS, REVIVE_UI_OK, 0);
@@ -263,9 +294,12 @@ DWORD WINAPI NetworkWorker(void* context)
     wchar_t caBundlePath[MAX_PATH];
     bool succeeded = false;
     const bool sending = request->mode == WORKER_SMTP_SEND;
+    const bool gettingHttp = request->mode == WORKER_HTTP_GET;
     ReviveSmtpResult sendResult = REVIVE_SMTP_IO_ERROR;
-    const char* serverHost = sending ? kSmtpServerHost : kImapServerHost;
-    const unsigned short serverPort = sending ? kSmtpServerPort : kImapServerPort;
+    const char* serverHost = gettingHttp ? request->httpUrl.host :
+                             sending ? kSmtpServerHost : kImapServerHost;
+    const unsigned short serverPort = gettingHttp ? request->httpUrl.port :
+                                     sending ? kSmtpServerPort : kImapServerPort;
     const bool connected = ReviveNetConnect(serverHost, serverPort,
         kConnectTimeoutMilliseconds, &connection, NetworkProgress, window);
     if (connected && ReviveTLSIsAvailable())
@@ -349,7 +383,7 @@ DWORD WINAPI NetworkWorker(void* context)
                     HeapFree(GetProcessHeap(), 0, body);
                 }
             }
-            else
+            else if (request->mode == WORKER_SMTP_SEND)
             {
                 PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_RUNNING, 0);
                 sendResult = ReviveSmtpSendMessage(
@@ -365,6 +399,38 @@ DWORD WINAPI NetworkWorker(void* context)
                     ReviveLog("SMTP", "message send failed", static_cast<int>(sendResult));
                     PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_FAILED,
                                static_cast<int>(sendResult));
+                }
+            }
+            else
+            {
+                char* response = static_cast<char*>(HeapAlloc(GetProcessHeap(),
+                    HEAP_ZERO_MEMORY, REVIVE_HTTP_RESPONSE_CAPACITY + 1));
+                int httpStatus = 0;
+                bool truncated = false;
+                ReviveHttpResult httpResult = REVIVE_HTTP_IO_ERROR;
+                PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_RUNNING, 0);
+                if (response != NULL)
+                    httpResult = ReviveHttpGet(tlsConnection, &request->httpUrl,
+                                                response, REVIVE_HTTP_RESPONSE_CAPACITY + 1,
+                                                &httpStatus, &truncated);
+                if (httpResult == REVIVE_HTTP_OK)
+                {
+                    ReviveLog("HTTP", "HTTPS response body received", httpStatus);
+                    PostHttpResponse(window, httpResult, httpStatus, response, truncated);
+                    PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_OK, 0);
+                    succeeded = true;
+                }
+                else
+                {
+                    ReviveLog("HTTP", "HTTPS request failed", static_cast<int>(httpResult));
+                    PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_FAILED,
+                               static_cast<int>(httpResult));
+                    PostHttpResponse(window, httpResult, httpStatus, NULL, false);
+                }
+                if (response != NULL)
+                {
+                    ClearBytes(response, REVIVE_HTTP_RESPONSE_CAPACITY + 1);
+                    HeapFree(GetProcessHeap(), 0, response);
                 }
             }
         }
@@ -495,6 +561,19 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
         SetRow(REVIVE_UI_IMAP, REVIVE_UI_FAILED, REVIVE_SMTP_CONFIGURATION_ERROR);
         return;
     }
+    if (mode == WORKER_HTTP_GET)
+    {
+        char urlText[REVIVE_HTTP_URL_CAPACITY];
+        const bool validUrl = CopyEditUtf8(g_httpUrl, urlText, sizeof(urlText)) &&
+                              ReviveHttpParseUrl(urlText, &request->httpUrl);
+        ClearBytes(urlText, sizeof(urlText));
+        if (!validUrl)
+        {
+            HeapFree(GetProcessHeap(), 0, request);
+            SetRow(REVIVE_UI_IMAP, REVIVE_UI_FAILED, REVIVE_HTTP_URL_ERROR);
+            return;
+        }
+    }
     if (mode == WORKER_INBOX_REFRESH)
     {
         SendMessage(g_inbox, LB_RESETCONTENT, 0, 0);
@@ -511,6 +590,7 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
     EnableWindow(g_refreshButton, FALSE);
     EnableWindow(g_openButton, FALSE);
     EnableWindow(g_composeButton, FALSE);
+    EnableWindow(g_webButton, FALSE);
     g_workerThread = CreateThread(NULL, 0, NetworkWorker, request, 0, &threadId);
     if (g_workerThread == NULL)
     {
@@ -522,8 +602,11 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
         EnableWindow(g_refreshButton, TRUE);
         EnableWindow(g_openButton, g_inboxCanOpen ? TRUE : FALSE);
         EnableWindow(g_composeButton, TRUE);
+        EnableWindow(g_webButton, TRUE);
         if (g_readerLoadMore != NULL)
             EnableWindow(g_readerLoadMore, g_readerHasMore ? TRUE : FALSE);
+        if (g_httpFetch != NULL)
+            EnableWindow(g_httpFetch, TRUE);
     }
 }
 
@@ -640,6 +723,123 @@ void OpenCompose()
     {
         ShowWindow(g_composeWindow, SW_SHOW);
         UpdateWindow(g_composeWindow);
+    }
+}
+
+LRESULT CALLBACK HttpWindowProc(HWND window, UINT message,
+                                WPARAM wParam, LPARAM lParam)
+{
+    switch (message)
+    {
+    case WM_CREATE:
+    {
+        RECT client;
+        HFONT font = static_cast<HFONT>(GetStockObject(SYSTEM_FONT));
+        const int margin = 12;
+        const int rowHeight = 24;
+        int actualButtonWidth;
+        int bodyTop;
+        int bodyHeight;
+        GetClientRect(window, &client);
+        actualButtonWidth = (client.right - 3 * margin) / 2;
+        HWND urlLabel = CreateWindow(L"STATIC", L"HTTPS URL:", WS_CHILD | WS_VISIBLE,
+            margin, margin, 72, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+        SendMessage(urlLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_httpUrl = CreateWindow(L"EDIT", L"https://www.google.com/robots.txt",
+            WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL,
+            margin + 72, margin, client.right - 2 * margin - 72, rowHeight, window,
+            NULL, GetModuleHandle(NULL), NULL);
+        SendMessage(g_httpUrl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_httpFetch = CreateWindow(L"BUTTON", L"GET", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
+            BS_DEFPUSHBUTTON, margin, margin + rowHeight + 5, actualButtonWidth,
+            rowHeight, window, reinterpret_cast<HMENU>(kHttpFetchControl),
+            GetModuleHandle(NULL), NULL);
+        SendMessage(g_httpFetch, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+            margin * 2 + actualButtonWidth, margin + rowHeight + 5, actualButtonWidth,
+            rowHeight, window, reinterpret_cast<HMENU>(IDOK), GetModuleHandle(NULL), NULL);
+        SendMessage(backButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_httpStatus = CreateWindow(L"STATIC", L"HTTPS only. Response limit: 32 KiB.",
+            WS_CHILD | WS_VISIBLE, margin, margin + (rowHeight + 5) * 2,
+            client.right - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+        SendMessage(g_httpStatus, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        bodyTop = margin + (rowHeight + 5) * 3;
+        bodyHeight = client.bottom - bodyTop - margin;
+        if (bodyHeight < rowHeight * 2)
+            bodyHeight = rowHeight * 2;
+        g_httpBody = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER |
+            ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL,
+            margin, bodyTop, client.right - 2 * margin, bodyHeight, window, NULL,
+            GetModuleHandle(NULL), NULL);
+        SendMessage(g_httpBody, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        SetFocus(g_httpUrl);
+        return 0;
+    }
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDOK && HIWORD(wParam) == BN_CLICKED)
+        {
+            DestroyWindow(window);
+            return 0;
+        }
+        if (LOWORD(wParam) == kHttpFetchControl && HIWORD(wParam) == BN_CLICKED)
+        {
+            SetWindowText(g_httpStatus, L"FETCHING...");
+            EnableWindow(g_httpFetch, FALSE);
+            BeginWorker(g_mainWindow, WORKER_HTTP_GET, 0, 0);
+            if (g_workerThread == NULL)
+            {
+                SetWindowText(g_httpStatus, L"ENTER A VALID HTTPS URL");
+                EnableWindow(g_httpFetch, TRUE);
+            }
+            return 0;
+        }
+        break;
+    case WM_CLOSE:
+        DestroyWindow(window);
+        return 0;
+    case WM_DESTROY:
+        g_httpWindow = NULL;
+        g_httpUrl = NULL;
+        g_httpFetch = NULL;
+        g_httpStatus = NULL;
+        g_httpBody = NULL;
+        return 0;
+    }
+    return DefWindowProc(window, message, wParam, lParam);
+}
+
+void ShowHttpResponse(ReviveUiHttpResponse* response)
+{
+    wchar_t status[160];
+    if (response == NULL)
+        return;
+    if (g_httpWindow != NULL && response->result == REVIVE_HTTP_OK)
+    {
+        wsprintf(status, L"HTTP %d%s", response->status,
+                 response->truncated ? L"  (first 32 KiB shown)" : L"");
+        SetWindowText(g_httpStatus, status);
+        SetWindowText(g_httpBody, response->body);
+    }
+    else if (g_httpWindow != NULL)
+        SetWindowText(g_httpStatus, MailFailureName(response->result));
+    HeapFree(GetProcessHeap(), 0, response);
+}
+
+void OpenHttp()
+{
+    if (g_httpWindow != NULL)
+    {
+        ShowWindow(g_httpWindow, SW_SHOW);
+        return;
+    }
+    g_httpWindow = CreateWindow(kHttpWindowClass, L"ReviveCE HTTPS",
+        WS_VISIBLE | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT,
+        GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), NULL, NULL,
+        GetModuleHandle(NULL), NULL);
+    if (g_httpWindow != NULL)
+    {
+        ShowWindow(g_httpWindow, SW_SHOW);
+        UpdateWindow(g_httpWindow);
     }
 }
 
@@ -815,7 +1015,7 @@ void CreateChildControls(HWND window)
     const int passwordEditWidth = width - (2 * margin + credentialLabelWidth +
                                             passwordToggleWidth + 4);
     int top = margin;
-    HWND title = CreateWindow(L"STATIC", L"ReviveCE Mail (M6)", WS_CHILD | WS_VISIBLE | SS_CENTER,
+    HWND title = CreateWindow(L"STATIC", L"ReviveCE Mail (M7)", WS_CHILD | WS_VISIBLE | SS_CENTER,
         margin, top, width - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
     SendMessage(title, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight + margin / 2;
@@ -870,6 +1070,11 @@ void CreateChildControls(HWND window)
         reinterpret_cast<HMENU>(IDC_COMPOSE), GetModuleHandle(NULL), NULL);
     SendMessage(g_composeButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += buttonHeight + margin / 2;
+    g_webButton = CreateWindow(L"BUTTON", L"WEB GET", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        margin, top, width - 2 * margin, buttonHeight, window,
+        reinterpret_cast<HMENU>(IDC_WEB_GET), GetModuleHandle(NULL), NULL);
+    SendMessage(g_webButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    top += buttonHeight + margin / 2;
     HWND inboxLabel = CreateWindow(L"STATIC", L"REFRESH loads mail. Select a row, then OPEN.", WS_CHILD | WS_VISIBLE,
         margin, top, width - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
     SendMessage(inboxLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
@@ -910,6 +1115,10 @@ ATOM RegisterReviveWindowClass(HINSTANCE instance)
         return 0;
     windowClass.lpfnWndProc = ComposeWindowProc;
     windowClass.lpszClassName = kComposeWindowClass;
+    if (RegisterClass(&windowClass) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+        return 0;
+    windowClass.lpfnWndProc = HttpWindowProc;
+    windowClass.lpszClassName = kHttpWindowClass;
     if (RegisterClass(&windowClass) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
         return 0;
     return mainClass;
@@ -954,6 +1163,8 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         { OpenSelectedMessage(window); return 0; }
         if (LOWORD(wParam) == IDC_COMPOSE && HIWORD(wParam) == BN_CLICKED)
         { OpenCompose(); return 0; }
+        if (LOWORD(wParam) == IDC_WEB_GET && HIWORD(wParam) == BN_CLICKED)
+        { OpenHttp(); return 0; }
         if (LOWORD(wParam) == IDC_INBOX && HIWORD(wParam) == LBN_DBLCLK)
         { OpenSelectedMessage(window); return 0; }
         break;
@@ -989,6 +1200,9 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
                           L"SENT. Gmail accepted the message." :
                           MailFailureName(static_cast<int>(wParam)));
         return 0;
+    case WM_REVIVE_HTTP_RESPONSE:
+        ShowHttpResponse(reinterpret_cast<ReviveUiHttpResponse*>(lParam));
+        return 0;
     case WM_REVIVE_TEST_COMPLETE:
         if (g_workerThread != NULL)
         {
@@ -999,8 +1213,11 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         EnableWindow(g_refreshButton, TRUE);
         EnableWindow(g_openButton, g_inboxCanOpen ? TRUE : FALSE);
         EnableWindow(g_composeButton, TRUE);
+        EnableWindow(g_webButton, TRUE);
         if (g_composeSend != NULL)
             EnableWindow(g_composeSend, TRUE);
+        if (g_httpFetch != NULL)
+            EnableWindow(g_httpFetch, TRUE);
         SetFocus(g_refreshButton);
         ReviveLog("APP", wParam ? "secure operation completed" : "secure operation failed", 0);
         return 0;
@@ -1014,6 +1231,8 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
             DestroyWindow(g_readerWindow);
         if (g_composeWindow != NULL)
             DestroyWindow(g_composeWindow);
+        if (g_httpWindow != NULL)
+            DestroyWindow(g_httpWindow);
         g_mainWindow = NULL;
         PostQuitMessage(0);
         return 0;

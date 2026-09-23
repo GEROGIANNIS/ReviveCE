@@ -967,6 +967,12 @@ Success:
 HTTPS GET returns page/feed.
 ```
 
+Current implementation note: M7 supplies a bounded HTTPS GET screen. It parses
+an `https://host[:port]/path` URL, makes a fresh verified TLS connection using
+the URL hostname for SNI and certificate verification, sends an HTTP/1.1 GET,
+and displays up to 32 KiB of an identity-encoded ordinary or chunked response.
+Redirects, compressed responses, cookies, and downloads are deferred.
+
 ---
 
 ## M8 — RSS/Atom

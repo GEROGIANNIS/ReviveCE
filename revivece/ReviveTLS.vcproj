@@ -112,6 +112,7 @@
 			<File RelativePath=".\mail\smtp.cpp"/>
 			<File RelativePath=".\net\socket.cpp"/>
 			<File RelativePath=".\net\tls.cpp"/>
+			<File RelativePath=".\net\http.cpp"/>
 		</Filter>
 		<Filter Name="Header Files" Filter="h;hpp;hxx;hm;inl;inc;xsd">
 			<File RelativePath=".\app\resource.h"/>
@@ -121,6 +122,7 @@
 			<File RelativePath=".\mail\smtp.h"/>
 			<File RelativePath=".\net\socket.h"/>
 			<File RelativePath=".\net\tls.h"/>
+			<File RelativePath=".\net\http.h"/>
 		</Filter>
 		<Filter Name="Resource Files" Filter="rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx">
 			<File RelativePath=".\app\resource.rc"/>

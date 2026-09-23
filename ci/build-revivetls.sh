@@ -29,9 +29,10 @@ sources=(
     "${repository_root}/revivece/mail/smtp.cpp"
     "${repository_root}/revivece/net/socket.cpp"
     "${repository_root}/revivece/net/tls.cpp"
+    "${repository_root}/revivece/net/http.cpp"
 )
 
-echo "Compiling ReviveTLS M6 for Windows CE ARM..."
+echo "Compiling ReviveTLS M7 for Windows CE ARM..."
 "${compiler}" \
     -std=gnu++98 \
     -Os \

@@ -41,7 +41,7 @@ if ($workflow -notmatch 'verify-ce-pe\.sh') {
 }
 if ($workflow -notmatch 'build-revivetls\.sh' -or
     $workflow -notmatch 'build-wolfssl\.sh' -or
-    $workflow -notmatch 'ReviveTLS-M6-WM6-ARMV4I' -or
+    $workflow -notmatch 'ReviveTLS-M7-WM6-ARMV4I' -or
     $workflow -notmatch 'google-roots\.pem') {
     throw 'Toolchain workflow does not build and upload the ReviveTLS M5 artifact.'
 }
@@ -120,6 +120,20 @@ foreach ($requiredSmtpControl in @(
         throw "M6 SMTP control is missing: $requiredSmtpControl."
     }
 }
+$httpSource = (Get-Content -Raw -LiteralPath `
+    (Join-Path $repositoryRoot 'revivece\net\http.cpp')) + "`n" +
+    (Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'revivece\app\ui.cpp'))
+foreach ($requiredHttpControl in @(
+    'ReviveHttpParseUrl',
+    'ReviveHttpGet',
+    'Accept-Encoding: identity',
+    'Transfer-Encoding',
+    'https://www.google.com/robots.txt'
+)) {
+    if ($httpSource -notmatch [regex]::Escape($requiredHttpControl)) {
+        throw "M7 HTTPS control is missing: $requiredHttpControl."
+    }
+}
 foreach ($requiredSource in @(
     'app/main.cpp',
     'app/ui.cpp',
@@ -127,7 +141,8 @@ foreach ($requiredSource in @(
     'net/socket.cpp',
     'net/tls.cpp',
     'mail/imap.cpp',
-    'mail/smtp.cpp'
+    'mail/smtp.cpp',
+    'net/http.cpp'
 )) {
     if ($reviveTlsBuild -notmatch [regex]::Escape("revivece/$requiredSource")) {
         throw "ReviveTLS CI build omits revivece/$requiredSource."
