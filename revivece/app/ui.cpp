@@ -161,7 +161,7 @@ void DrawBrandMark(HDC deviceContext, int right, int top)
 }
 
 bool HandleThemeMessage(HWND window, UINT message, WPARAM wParam,
-                        LRESULT* result)
+                        LPARAM lParam, LRESULT* result)
 {
     DRAWITEMSTRUCT* item;
     HDC deviceContext;
@@ -955,7 +955,7 @@ LRESULT CALLBACK ComposeWindowProc(HWND window, UINT message,
                                    WPARAM wParam, LPARAM lParam)
 {
     LRESULT themeResult;
-    if (HandleThemeMessage(window, message, wParam, &themeResult))
+    if (HandleThemeMessage(window, message, wParam, lParam, &themeResult))
         return themeResult;
     switch (message)
     {
@@ -1082,7 +1082,7 @@ LRESULT CALLBACK HttpWindowProc(HWND window, UINT message,
                                 WPARAM wParam, LPARAM lParam)
 {
     LRESULT themeResult;
-    if (HandleThemeMessage(window, message, wParam, &themeResult))
+    if (HandleThemeMessage(window, message, wParam, lParam, &themeResult))
         return themeResult;
     switch (message)
     {
@@ -1211,7 +1211,7 @@ LRESULT CALLBACK FeedWindowProc(HWND window, UINT message,
                                 WPARAM wParam, LPARAM lParam)
 {
     LRESULT themeResult;
-    if (HandleThemeMessage(window, message, wParam, &themeResult))
+    if (HandleThemeMessage(window, message, wParam, lParam, &themeResult))
         return themeResult;
     switch (message)
     {
@@ -1402,7 +1402,7 @@ LRESULT CALLBACK ReaderWindowProc(HWND window, UINT message,
                                   WPARAM wParam, LPARAM lParam)
 {
     LRESULT themeResult;
-    if (HandleThemeMessage(window, message, wParam, &themeResult))
+    if (HandleThemeMessage(window, message, wParam, lParam, &themeResult))
         return themeResult;
     switch (message)
     {
@@ -1687,7 +1687,7 @@ HWND CreateReviveMainWindow(HINSTANCE instance, int showCommand)
 LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     LRESULT themeResult;
-    if (HandleThemeMessage(window, message, wParam, &themeResult))
+    if (HandleThemeMessage(window, message, wParam, lParam, &themeResult))
         return themeResult;
     switch (message)
     {
@@ -1786,7 +1786,7 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
             EnableWindow(g_httpFetch, TRUE);
         if (g_feedFetch != NULL)
             EnableWindow(g_feedFetch, TRUE);
-            SetFocus(g_inboxCanOpen ? g_inbox : g_refreshButton);
+        SetFocus(g_inboxCanOpen ? g_inbox : g_refreshButton);
         ReviveLog("APP", wParam ? "secure operation completed" : "secure operation failed", 0);
         return 0;
     case WM_CLOSE:
