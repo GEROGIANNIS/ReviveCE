@@ -49,9 +49,10 @@ For M3:
 7. Expose handshake and verification results to the UI separately.
    A successful TCP connection is not a successful TLS connection.
 
-The checked-in bundle is the 21-certificate Google service CA list downloaded
-from `https://pki.goog/roots.pem`. Repository validation pins its SHA-256 to
-`ec989df46c8f4419ef2ee2517cad7619d555e4973f3307be697662aa2497e480`.
+The checked-in bundle contains the 21-certificate Google service CA list plus
+the official Let's Encrypt ISRG Root X1 certificate required by the default
+`hnrss.org` feed. Repository validation pins its SHA-256 to
+`e7e2d35bd9d8b205b93581f8635cd299a0c7e2c361b7f303b5c9659a0a9d1363`.
 Google advises synchronizing this list at least twice yearly because service
 chains can change; updating it requires review plus updating the pinned hash.
 

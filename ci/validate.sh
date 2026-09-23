@@ -132,14 +132,14 @@ done
 
 certificate_count=$(grep -c -- '-----BEGIN CERTIFICATE-----' \
     revivece/crypto/certs/google-roots.pem)
-if [[ "${certificate_count}" -ne 21 ]]; then
-    echo "ERROR: Google trust bundle must contain the reviewed 21 certificates." >&2
+if [[ "${certificate_count}" -ne 22 ]]; then
+    echo "ERROR: Service trust bundle must contain the reviewed 22 certificates." >&2
     exit 1
 fi
 bundle_sha256=$(sha256sum revivece/crypto/certs/google-roots.pem | cut -d' ' -f1)
 if [[ "${bundle_sha256}" != \
-    "ec989df46c8f4419ef2ee2517cad7619d555e4973f3307be697662aa2497e480" ]]; then
-    echo "ERROR: Google trust bundle hash differs from the reviewed bundle." >&2
+    "e7e2d35bd9d8b205b93581f8635cd299a0c7e2c361b7f303b5c9659a0a9d1363" ]]; then
+    echo "ERROR: Service trust bundle hash differs from the reviewed bundle." >&2
     exit 1
 fi
 

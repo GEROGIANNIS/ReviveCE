@@ -195,13 +195,13 @@ $caBundlePath = Join-Path $repositoryRoot `
     'revivece\crypto\certs\google-roots.pem'
 $certificateCount = (Select-String -LiteralPath $caBundlePath `
     -Pattern '-----BEGIN CERTIFICATE-----').Count
-if ($certificateCount -ne 21) {
-    throw 'Google trust bundle must contain the reviewed 21 certificates.'
+if ($certificateCount -ne 22) {
+    throw 'Service trust bundle must contain the reviewed 22 certificates.'
 }
 $bundleHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $caBundlePath).Hash
 if ($bundleHash -ne `
-    'EC989DF46C8F4419EF2EE2517CAD7619D555E4973F3307BE697662AA2497E480') {
-    throw 'Google trust bundle hash differs from the reviewed bundle.'
+    'E7E2D35BD9D8B205B93581F8635CD299A0C7E2C361B7F303B5C9659A0A9D1363') {
+    throw 'Service trust bundle hash differs from the reviewed bundle.'
 }
 
 [xml]$project = Get-Content -Raw -LiteralPath $projectPath

@@ -1,11 +1,12 @@
-# ReviveCE Google service trust bundle
+# ReviveCE service trust bundle
 
-`google-roots.pem` is the Google-maintained CA list for clients connecting to
-Google services. It was downloaded from `https://pki.goog/roots.pem` on
-2026-09-22.
+`google-roots.pem` contains the Google-maintained CA list plus the official
+Let's Encrypt ISRG Root X1 certificate. The additional root is required for
+the default `https://hnrss.org/frontpage` feed, whose current chain uses the
+Let's Encrypt YR1 intermediate.
 
-- Certificates: 21
-- SHA-256: `ec989df46c8f4419ef2ee2517cad7619d555e4973f3307be697662aa2497e480`
+- Certificates: 22
+- SHA-256: `e7e2d35bd9d8b205b93581f8635cd299a0c7e2c361b7f303b5c9659a0a9d1363`
 - Current live Gmail chain observed during review:
   `imap.gmail.com -> WR2 -> GTS Root R1 (GlobalSign cross-sign)`
 - Presented cross-sign SHA-256:
@@ -17,3 +18,6 @@ Google says its service certificate chains are not static and recommends
 synchronizing this bundle at least every six months. Replace the PEM only from
 the official HTTPS endpoint, inspect its certificate list, and update the
 pinned hashes in both repository validation scripts in the same commit.
+
+The ISRG Root X1 certificate is published at
+`https://letsencrypt.org/certs/isrgrootx1.pem`.
