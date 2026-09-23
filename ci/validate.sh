@@ -74,7 +74,7 @@ for required_feed_control in \
     ReviveFeedParse \
     REVIVE_FEED_MAX_ITEMS \
     WORKER_FEED_FETCH \
-    'https://blog.google/feed/' \
+    'https://hnrss.org/frontpage' \
     'RSS 2.0 and Atom 1.0'; do
     if ! grep -Fq "${required_feed_control}" revivece/feeds/feed.cpp revivece/feeds/feed.h revivece/app/ui.cpp; then
         echo "ERROR: M8 feed control is missing: ${required_feed_control}." >&2

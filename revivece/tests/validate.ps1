@@ -142,7 +142,7 @@ foreach ($requiredFeedControl in @(
     'ReviveFeedParse',
     'REVIVE_FEED_MAX_ITEMS',
     'WORKER_FEED_FETCH',
-    'https://blog.google/feed/',
+    'https://hnrss.org/frontpage',
     'RSS 2.0 and Atom 1.0'
 )) {
     if ($feedSource -notmatch [regex]::Escape($requiredFeedControl)) {

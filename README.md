@@ -69,7 +69,7 @@ screen starts with `https://www.google.com/robots.txt`; it verifies the URL's
 hostname and certificate before showing a bounded response. Redirects,
 compressed responses, downloads, and cookies are intentionally deferred.
 
-M8 adds **FEEDS**, prefilled with `https://blog.google/feed/`. It downloads a
+M8 adds **FEEDS**, prefilled with `https://hnrss.org/frontpage`. It downloads a
 single HTTPS RSS 2.0 or Atom 1.0 document and lists up to 25 titles with dates.
 Feeds are not saved, article pages and summaries cannot be opened yet, and the
 32 KiB HTTP response bound still applies. Its next acceptance test is on the

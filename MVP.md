@@ -990,7 +990,7 @@ read items
 
 Current implementation note: M8 adds a **FEEDS** screen backed by the M7
 verified HTTPS client. It accepts one `https://` RSS 2.0 or Atom 1.0 URL at a
-time, initially `https://blog.google/feed/`, and displays up to 25 item titles
+time, initially `https://hnrss.org/frontpage`, and displays up to 25 item titles
 and publication dates. The compact parser also retains item links for the next
 reader step. Feed storage, unread state, descriptions, and opening an article
 remain later work.

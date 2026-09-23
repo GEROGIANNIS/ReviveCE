@@ -960,7 +960,7 @@ LRESULT CALLBACK FeedWindowProc(HWND window, UINT message,
         HWND urlLabel = CreateWindow(L"STATIC", L"Feed URL:", WS_CHILD | WS_VISIBLE,
             margin, margin, 60, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(urlLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        g_feedUrl = CreateWindow(L"EDIT", L"https://blog.google/feed/",
+        g_feedUrl = CreateWindow(L"EDIT", L"https://hnrss.org/frontpage",
             WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL,
             margin + 60, margin, client.right - 2 * margin - 60, rowHeight, window,
             NULL, GetModuleHandle(NULL), NULL);

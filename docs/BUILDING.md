@@ -85,7 +85,7 @@ shows the first 32 KiB of an identity-encoded HTTP response. Redirects,
 compressed content, downloads, and cookies are not supported yet.
 
 Tap **FEEDS** for the M8 feed proof. It starts with
-`https://blog.google/feed/`; tap **REFRESH** to fetch the feed over verified
+`https://hnrss.org/frontpage`; tap **REFRESH** to fetch the feed over verified
 HTTPS. A successful result reports its HTTP status and the number of RSS or
 Atom entries displayed. The current reader lists at most 25 titles and dates;
 it does not yet save feeds or open article pages.
