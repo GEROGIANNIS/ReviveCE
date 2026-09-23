@@ -210,6 +210,19 @@ bool AppendCrLf(char* data, int capacity, int* length)
            AppendByte(data, capacity, length, '\n');
 }
 
+bool BuildEnvelopeCommand(char* command, int capacity, const char* prefix,
+                          const char* address)
+{
+    int length = 0;
+    if (command == NULL || prefix == NULL || address == NULL)
+        return false;
+    command[0] = '\0';
+    return AppendText(command, capacity, &length, prefix) &&
+           AppendByte(command, capacity, &length, '<') &&
+           AppendText(command, capacity, &length, address) &&
+           AppendText(command, capacity, &length, ">\r\n");
+}
+
 bool BuildData(const ReviveImapCredentials* credentials,
                const ReviveSmtpMessage* message, char* data, int capacity)
 {
@@ -319,14 +332,16 @@ ReviveSmtpResult ReviveSmtpSendMessage(ReviveTlsConnection* connection,
     result = ReadResponse(&reader, 235, REVIVE_SMTP_AUTHENTICATION_ERROR);
     if (result != REVIVE_SMTP_OK)
         return result;
-    wsprintfA(command, "MAIL FROM:<%s>\r\n", credentials->email);
-    if (!WriteLine(connection, command))
+    if (!BuildEnvelopeCommand(command, sizeof(command), "MAIL FROM:",
+                              credentials->email) ||
+        !WriteLine(connection, command))
         return REVIVE_SMTP_IO_ERROR;
     result = ReadResponse(&reader, 250, REVIVE_SMTP_SENDER_ERROR);
     if (result != REVIVE_SMTP_OK)
         return result;
-    wsprintfA(command, "RCPT TO:<%s>\r\n", message->recipient);
-    if (!WriteLine(connection, command))
+    if (!BuildEnvelopeCommand(command, sizeof(command), "RCPT TO:",
+                              message->recipient) ||
+        !WriteLine(connection, command))
         return REVIVE_SMTP_IO_ERROR;
     result = ReadResponse(&reader, 250, REVIVE_SMTP_RECIPIENT_ERROR);
     if (result != REVIVE_SMTP_OK)
