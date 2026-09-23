@@ -70,6 +70,7 @@ bool ReviveNetConnect(const char* host,
     WSADATA winsockData;
     hostent* hostEntry;
     sockaddr_in address;
+    char** addressCursor;
     u_long nonBlocking = 1;
     int result;
     int nativeError = 0;
@@ -109,61 +110,57 @@ bool ReviveNetConnect(const char* host,
            progressContext);
     ReviveLog("NET", "DNS resolved", 0);
 
-    address.sin_family = AF_INET;
-    address.sin_port = htons(port);
-    address.sin_addr = *reinterpret_cast<in_addr*>(hostEntry->h_addr_list[0]);
-    for (int index = 0; index < 8; ++index)
-        address.sin_zero[index] = 0;
+    Report(progress, REVIVE_NET_TCP, REVIVE_NET_RUNNING, 0,
+           progressContext);
+    for (addressCursor = hostEntry->h_addr_list;
+         *addressCursor != NULL; ++addressCursor)
+    {
+        address.sin_family = AF_INET;
+        address.sin_port = htons(port);
+        address.sin_addr = *reinterpret_cast<in_addr*>(*addressCursor);
+        for (int index = 0; index < 8; ++index)
+            address.sin_zero[index] = 0;
 
-    Report(progress, REVIVE_NET_TCP, REVIVE_NET_RUNNING, 0, progressContext);
-    connection->socketHandle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        connection->socketHandle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (connection->socketHandle == INVALID_SOCKET)
+        {
+            nativeError = WSAGetLastError();
+            continue;
+        }
+
+        if (ioctlsocket(connection->socketHandle, FIONBIO, &nonBlocking) ==
+            SOCKET_ERROR)
+        {
+            nativeError = WSAGetLastError();
+            closesocket(connection->socketHandle);
+            connection->socketHandle = INVALID_SOCKET;
+            continue;
+        }
+
+        result = connect(connection->socketHandle,
+                         reinterpret_cast<sockaddr*>(&address), sizeof(address));
+        if (result == 0)
+            break;
+
+        nativeError = WSAGetLastError();
+        if ((nativeError == WSAEWOULDBLOCK ||
+             nativeError == WSAEINPROGRESS || nativeError == WSAEALREADY) &&
+            WaitForConnect(connection->socketHandle, timeoutMilliseconds,
+                           &nativeError))
+            break;
+
+        closesocket(connection->socketHandle);
+        connection->socketHandle = INVALID_SOCKET;
+    }
+
     if (connection->socketHandle == INVALID_SOCKET)
     {
-        nativeError = WSAGetLastError();
-        ReviveLog("NET", "socket creation failed", nativeError);
+        ReviveLog("NET", "TCP connection failed", nativeError);
         Report(progress, REVIVE_NET_TCP, REVIVE_NET_FAILED, nativeError,
                progressContext);
         ReviveNetClose(connection);
         return false;
     }
-
-    if (ioctlsocket(connection->socketHandle, FIONBIO, &nonBlocking) ==
-        SOCKET_ERROR)
-    {
-        nativeError = WSAGetLastError();
-        ReviveLog("NET", "non-blocking socket setup failed", nativeError);
-        Report(progress, REVIVE_NET_TCP, REVIVE_NET_FAILED, nativeError,
-               progressContext);
-        ReviveNetClose(connection);
-        return false;
-    }
-
-    result = connect(connection->socketHandle,
-                     reinterpret_cast<sockaddr*>(&address), sizeof(address));
-    if (result == SOCKET_ERROR)
-    {
-        nativeError = WSAGetLastError();
-        if (nativeError != WSAEWOULDBLOCK && nativeError != WSAEINPROGRESS &&
-            nativeError != WSAEALREADY)
-        {
-            ReviveLog("NET", "TCP connection failed", nativeError);
-            Report(progress, REVIVE_NET_TCP, REVIVE_NET_FAILED, nativeError,
-                   progressContext);
-            ReviveNetClose(connection);
-            return false;
-        }
-
-        if (!WaitForConnect(connection->socketHandle, timeoutMilliseconds,
-                            &nativeError))
-        {
-            ReviveLog("NET", "TCP connection failed", nativeError);
-            Report(progress, REVIVE_NET_TCP, REVIVE_NET_FAILED, nativeError,
-                   progressContext);
-            ReviveNetClose(connection);
-            return false;
-        }
-    }
-
     nonBlocking = 0;
     if (ioctlsocket(connection->socketHandle, FIONBIO, &nonBlocking) ==
         SOCKET_ERROR)
