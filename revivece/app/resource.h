@@ -17,6 +17,7 @@
 #define IDC_INBOX                       1014
 #define IDC_OPEN_MESSAGE                 1015
 #define IDC_COMPOSE                      1016
+#define IDC_TOGGLE_PASSWORD              1017
 
 #define WM_REVIVE_STATUS                (WM_APP + 1)
 #define WM_REVIVE_TEST_COMPLETE         (WM_APP + 2)

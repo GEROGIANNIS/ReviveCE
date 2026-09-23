@@ -83,13 +83,17 @@ authenticates with the App Password, clears that edit field, and fills the list
 with up to 25 recent messages. Each row shows a `*` when unread, plus sender,
 subject, and date.
 
+Use **SHOW** beside the password field to verify the entered App Password, then
+tap it again to **HIDE** it before refreshing.
+
 Select a row and tap `OPEN` (or double-tap it) to fetch the chosen message.
 The full-screen reader shows its sender, subject, date, and a scrollable
 plain-text body. When only HTML is available, the reader labels its simplified
 text conversion. The App Password is never written to logs or disk; it remains
 only in memory until ReviveCE closes so selected messages can be opened.
-The password field is cleared after refresh, but do not re-enter it for `OPEN`:
-the active in-memory session is reused. If a message cannot be read, the IMAP
+The password field is cleared after refresh, but do not re-enter it for `OPEN`,
+`COMPOSE`, or another refresh of the same address: the active in-memory session
+is reused. If a message cannot be read, the IMAP
 row now states the specific test outcome, such as `MESSAGE TEXT TOO LARGE` or
 `MESSAGE FORMAT NOT SUPPORTED`, alongside its diagnostic code. In the reader,
 tap **LOAD MORE** when it is enabled to expand a large message safely.

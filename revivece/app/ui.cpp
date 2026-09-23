@@ -40,6 +40,8 @@ HWND g_openButton = NULL;
 HWND g_composeButton = NULL;
 HWND g_emailEdit = NULL;
 HWND g_passwordEdit = NULL;
+HWND g_passwordToggle = NULL;
+bool g_passwordVisible = false;
 HWND g_inbox = NULL;
 HANDLE g_workerThread = NULL;
 HWND g_readerWindow = NULL;
@@ -149,6 +151,15 @@ void SetRow(ReviveUiRow row, ReviveUiState state, int nativeError)
     else
         wsprintf(text, L"%s  ..........  %s", RowName(row), StateName(state));
     SetWindowText(g_statusControls[row], text);
+}
+
+void SetMailHint(const wchar_t* hint)
+{
+    wchar_t text[160];
+    if (hint == NULL)
+        return;
+    wsprintf(text, L"%s  %s", RowName(REVIVE_UI_IMAP), hint);
+    SetWindowText(g_statusControls[REVIVE_UI_IMAP], text);
 }
 
 void PostStatus(HWND window, ReviveUiRow row, ReviveUiState state, int nativeError)
@@ -409,6 +420,16 @@ bool CopyEditUtf8(HWND edit, char* destination, int capacity)
     return succeeded;
 }
 
+bool SameText(const char* first, const char* second)
+{
+    if (first == NULL || second == NULL)
+        return false;
+    while (*first != '\0' && *second != '\0')
+        if (*first++ != *second++)
+            return false;
+    return *first == '\0' && *second == '\0';
+}
+
 void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
                  unsigned long bodyBytes)
 {
@@ -423,18 +444,29 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
     request->mode = mode;
     request->uid = uid;
     request->bodyBytes = bodyBytes;
-    if (mode == WORKER_INBOX_REFRESH &&
-        (!CopyEditUtf8(g_emailEdit, request->credentials.email, sizeof(request->credentials.email)) ||
-         !CopyEditUtf8(g_passwordEdit, request->credentials.appPassword, sizeof(request->credentials.appPassword))))
-    {
-        ReviveImapClearCredentials(&request->credentials);
-        HeapFree(GetProcessHeap(), 0, request);
-        SetRow(REVIVE_UI_IMAP, REVIVE_UI_FAILED, REVIVE_IMAP_CONFIGURATION_ERROR);
-        return;
-    }
     if (mode == WORKER_INBOX_REFRESH)
-        CopyMemory(&g_sessionCredentials, &request->credentials,
-                   sizeof(g_sessionCredentials));
+    {
+        const bool hasEmail = CopyEditUtf8(g_emailEdit, request->credentials.email,
+                                           sizeof(request->credentials.email));
+        const bool hasPassword = CopyEditUtf8(g_passwordEdit,
+                                              request->credentials.appPassword,
+                                              sizeof(request->credentials.appPassword));
+        if (hasEmail && hasPassword)
+            CopyMemory(&g_sessionCredentials, &request->credentials,
+                       sizeof(g_sessionCredentials));
+        else if (hasEmail && !hasPassword &&
+                 SameText(request->credentials.email, g_sessionCredentials.email) &&
+                 g_sessionCredentials.appPassword[0] != '\0')
+            CopyMemory(&request->credentials, &g_sessionCredentials,
+                       sizeof(request->credentials));
+        else
+        {
+            ReviveImapClearCredentials(&request->credentials);
+            HeapFree(GetProcessHeap(), 0, request);
+            SetMailHint(L"ENTER GMAIL + APP PASSWORD");
+            return;
+        }
+    }
     if (mode == WORKER_MESSAGE_FETCH || mode == WORKER_SMTP_SEND)
     {
         if ((mode == WORKER_MESSAGE_FETCH && (uid == 0 || bodyBytes == 0 ||
@@ -467,6 +499,10 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
     {
         SendMessage(g_inbox, LB_RESETCONTENT, 0, 0);
         SetWindowText(g_passwordEdit, L"");
+        g_passwordVisible = false;
+        SendMessage(g_passwordEdit, EM_SETPASSWORDCHAR, static_cast<WPARAM>(L'*'), 0);
+        InvalidateRect(g_passwordEdit, NULL, TRUE);
+        SetWindowText(g_passwordToggle, L"SHOW");
         g_inboxCanOpen = false;
         EnableWindow(g_openButton, FALSE);
     }
@@ -774,6 +810,10 @@ void CreateChildControls(HWND window)
     const int width = client.right - client.left;
     const int margin = width / 20;
     const int rowHeight = 25;
+    const int credentialLabelWidth = 84;
+    const int passwordToggleWidth = 50;
+    const int passwordEditWidth = width - (2 * margin + credentialLabelWidth +
+                                            passwordToggleWidth + 4);
     int top = margin;
     HWND title = CreateWindow(L"STATIC", L"ReviveCE Mail (M6)", WS_CHILD | WS_VISIBLE | SS_CENTER,
         margin, top, width - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
@@ -789,21 +829,26 @@ void CreateChildControls(HWND window)
                REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT, 0);
         top += rowHeight;
     }
-    HWND emailLabel = CreateWindow(L"STATIC", L"Gmail address:", WS_CHILD | WS_VISIBLE,
-        margin, top, width / 3, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+    HWND emailLabel = CreateWindow(L"STATIC", L"Gmail:", WS_CHILD | WS_VISIBLE,
+        margin, top, credentialLabelWidth, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
     SendMessage(emailLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     g_emailEdit = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL,
-        margin + width / 3, top, width - (2 * margin + width / 3), rowHeight, window,
+        margin + credentialLabelWidth, top, width - (2 * margin + credentialLabelWidth), rowHeight, window,
         reinterpret_cast<HMENU>(IDC_EMAIL), GetModuleHandle(NULL), NULL);
     SendMessage(g_emailEdit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight + 3;
-    HWND passwordLabel = CreateWindow(L"STATIC", L"App password:", WS_CHILD | WS_VISIBLE,
-        margin, top, width / 3, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+    HWND passwordLabel = CreateWindow(L"STATIC", L"Password:", WS_CHILD | WS_VISIBLE,
+        margin, top, credentialLabelWidth, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
     SendMessage(passwordLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     g_passwordEdit = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_PASSWORD | ES_AUTOHSCROLL,
-        margin + width / 3, top, width - (2 * margin + width / 3), rowHeight, window,
+        margin + credentialLabelWidth, top, passwordEditWidth, rowHeight, window,
         reinterpret_cast<HMENU>(IDC_APP_PASSWORD), GetModuleHandle(NULL), NULL);
     SendMessage(g_passwordEdit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    g_passwordToggle = CreateWindow(L"BUTTON", L"SHOW", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        margin + credentialLabelWidth + passwordEditWidth + 4, top, passwordToggleWidth,
+        rowHeight, window, reinterpret_cast<HMENU>(IDC_TOGGLE_PASSWORD),
+        GetModuleHandle(NULL), NULL);
+    SendMessage(g_passwordToggle, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight + margin / 2;
     const int buttonWidth = (width - 3 * margin) / 2;
     const int buttonHeight = rowHeight + 5;
@@ -896,6 +941,15 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         { BeginWorker(window, WORKER_TLS_TEST, 0, 0); return 0; }
         if (LOWORD(wParam) == IDC_REFRESH_INBOX && HIWORD(wParam) == BN_CLICKED)
         { BeginWorker(window, WORKER_INBOX_REFRESH, 0, 0); return 0; }
+        if (LOWORD(wParam) == IDC_TOGGLE_PASSWORD && HIWORD(wParam) == BN_CLICKED)
+        {
+            g_passwordVisible = !g_passwordVisible;
+            SendMessage(g_passwordEdit, EM_SETPASSWORDCHAR,
+                        g_passwordVisible ? 0 : static_cast<WPARAM>(L'*'), 0);
+            InvalidateRect(g_passwordEdit, NULL, TRUE);
+            SetWindowText(g_passwordToggle, g_passwordVisible ? L"HIDE" : L"SHOW");
+            return 0;
+        }
         if (LOWORD(wParam) == IDC_OPEN_MESSAGE && HIWORD(wParam) == BN_CLICKED)
         { OpenSelectedMessage(window); return 0; }
         if (LOWORD(wParam) == IDC_COMPOSE && HIWORD(wParam) == BN_CLICKED)

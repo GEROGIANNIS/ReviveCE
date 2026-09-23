@@ -65,8 +65,9 @@ its plain-text body. The reader fetches a text section rather than the complete
 message, so attachments are not downloaded; common first-part multipart text
 and basic HTML-to-text conversion are supported. The reader loads 8 KiB first;
 when **LOAD MORE** is enabled it re-fetches a larger prefix in 8 KiB increments
-up to 32 KiB. Do not re-enter the App Password for **OPEN** while the app
-remains running. A successful operation reports `MAIL ... OK`; a readable IMAP
+up to 32 KiB. Do not re-enter the App Password for **OPEN**, **COMPOSE**, or a
+refresh of the same Gmail address while the app remains running. A successful
+operation reports `MAIL ... OK`; a readable IMAP
 failure description identifies messages that exceed the current bound or use
 an unsupported format.
 
