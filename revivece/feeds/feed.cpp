@@ -1,4 +1,5 @@
 #include "feed.h"
+#include <cstddef>
 
 namespace
 {
