@@ -28,6 +28,12 @@ const char* const kSmtpServerHost = "smtp.gmail.com";
 const unsigned short kSmtpServerPort = 465;
 const DWORD kConnectTimeoutMilliseconds = 15000;
 const wchar_t* const kCABundleFileName = L"google-roots.pem";
+const COLORREF kShellColor = RGB(18, 28, 42);
+const COLORREF kSurfaceColor = RGB(31, 47, 64);
+const COLORREF kInputColor = RGB(242, 246, 247);
+const COLORREF kAccentColor = RGB(52, 196, 183);
+const COLORREF kTextColor = RGB(239, 247, 247);
+const COLORREF kMutedTextColor = RGB(164, 186, 194);
 
 enum WorkerMode { WORKER_TLS_TEST = 0, WORKER_INBOX_REFRESH, WORKER_MESSAGE_FETCH,
                   WORKER_SMTP_SEND, WORKER_HTTP_GET, WORKER_FEED_FETCH };
@@ -100,12 +106,146 @@ const ReviveFeedSource kFeedSources[] =
 const int kFeedSourceCount = sizeof(kFeedSources) / sizeof(kFeedSources[0]);
 ReviveImapCredentials g_sessionCredentials;
 bool g_inboxCanOpen = false;
+HBRUSH g_shellBrush = NULL;
+HBRUSH g_surfaceBrush = NULL;
+HBRUSH g_inputBrush = NULL;
+HBRUSH g_accentBrush = NULL;
 
 void ClearBytes(void* value, unsigned int length)
 {
     volatile unsigned char* cursor = static_cast<volatile unsigned char*>(value);
     while (length-- != 0)
         *cursor++ = 0;
+}
+
+void InitializeTheme()
+{
+    g_shellBrush = CreateSolidBrush(kShellColor);
+    g_surfaceBrush = CreateSolidBrush(kSurfaceColor);
+    g_inputBrush = CreateSolidBrush(kInputColor);
+    g_accentBrush = CreateSolidBrush(kAccentColor);
+}
+
+void DestroyTheme()
+{
+    if (g_shellBrush != NULL)
+        DeleteObject(g_shellBrush);
+    if (g_surfaceBrush != NULL)
+        DeleteObject(g_surfaceBrush);
+    if (g_inputBrush != NULL)
+        DeleteObject(g_inputBrush);
+    if (g_accentBrush != NULL)
+        DeleteObject(g_accentBrush);
+    g_shellBrush = NULL;
+    g_surfaceBrush = NULL;
+    g_inputBrush = NULL;
+    g_accentBrush = NULL;
+}
+
+void DrawBrandMark(HDC deviceContext, int right, int top)
+{
+    RECT mark;
+    mark.left = right - 34;
+    mark.top = top;
+    mark.right = right - 25;
+    mark.bottom = top + 9;
+    FillRect(deviceContext, &mark, g_accentBrush);
+    mark.left += 12;
+    mark.right += 12;
+    FillRect(deviceContext, &mark, g_surfaceBrush);
+    mark.left -= 6;
+    mark.right -= 6;
+    mark.top += 11;
+    mark.bottom += 11;
+    FillRect(deviceContext, &mark, g_accentBrush);
+}
+
+bool HandleThemeMessage(HWND window, UINT message, WPARAM wParam,
+                        LRESULT* result)
+{
+    DRAWITEMSTRUCT* item;
+    HDC deviceContext;
+    RECT client;
+    RECT accent;
+    if (result == NULL)
+        return false;
+    if (message == WM_DRAWITEM)
+    {
+        item = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+        if (item != NULL && item->CtlType == ODT_BUTTON)
+        {
+            wchar_t label[64];
+            HBRUSH brush = (item->itemState & ODS_SELECTED) != 0 ?
+                g_accentBrush : g_surfaceBrush;
+            FillRect(item->hDC, &item->rcItem, brush);
+            FrameRect(item->hDC, &item->rcItem, g_accentBrush);
+            label[0] = L'\0';
+            GetWindowText(item->hwndItem, label, sizeof(label) / sizeof(wchar_t));
+            SetTextColor(item->hDC, (item->itemState & ODS_SELECTED) != 0 ?
+                         kShellColor : kTextColor);
+            SetBkMode(item->hDC, TRANSPARENT);
+            DrawText(item->hDC, label, -1, &item->rcItem,
+                     DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            *result = TRUE;
+            return true;
+        }
+    }
+    if (message == WM_ERASEBKGND)
+    {
+        deviceContext = reinterpret_cast<HDC>(wParam);
+        GetClientRect(window, &client);
+        FillRect(deviceContext, &client, g_shellBrush);
+        accent.left = 0;
+        accent.top = 0;
+        accent.right = client.right;
+        accent.bottom = 5;
+        FillRect(deviceContext, &accent, g_accentBrush);
+        DrawBrandMark(deviceContext, client.right - 10, 14);
+        *result = 1;
+        return true;
+    }
+    if (message == WM_PAINT)
+    {
+        PAINTSTRUCT paint;
+        deviceContext = BeginPaint(window, &paint);
+        GetClientRect(window, &client);
+        FillRect(deviceContext, &client, g_shellBrush);
+        accent.left = 0;
+        accent.top = 0;
+        accent.right = client.right;
+        accent.bottom = 5;
+        FillRect(deviceContext, &accent, g_accentBrush);
+        DrawBrandMark(deviceContext, client.right - 10, 14);
+        EndPaint(window, &paint);
+        *result = 0;
+        return true;
+    }
+    if (message == WM_CTLCOLORSTATIC)
+    {
+        deviceContext = reinterpret_cast<HDC>(wParam);
+        SetTextColor(deviceContext, kTextColor);
+        SetBkColor(deviceContext, kShellColor);
+        SetBkMode(deviceContext, TRANSPARENT);
+        *result = reinterpret_cast<LRESULT>(g_shellBrush);
+        return true;
+    }
+    if (message == WM_CTLCOLOREDIT || message == WM_CTLCOLORLISTBOX)
+    {
+        deviceContext = reinterpret_cast<HDC>(wParam);
+        SetTextColor(deviceContext, RGB(20, 31, 42));
+        SetBkColor(deviceContext, kInputColor);
+        *result = reinterpret_cast<LRESULT>(g_inputBrush);
+        return true;
+    }
+    if (message == WM_CTLCOLORBTN)
+    {
+        deviceContext = reinterpret_cast<HDC>(wParam);
+        SetTextColor(deviceContext, kTextColor);
+        SetBkColor(deviceContext, kSurfaceColor);
+        *result = reinterpret_cast<LRESULT>(g_surfaceBrush);
+        return true;
+    }
+    return false;
 }
 
 const wchar_t* RowName(ReviveUiRow row)
@@ -814,6 +954,9 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
 LRESULT CALLBACK ComposeWindowProc(HWND window, UINT message,
                                    WPARAM wParam, LPARAM lParam)
 {
+    LRESULT themeResult;
+    if (HandleThemeMessage(window, message, wParam, &themeResult))
+        return themeResult;
     switch (message)
     {
     case WM_CREATE:
@@ -852,11 +995,11 @@ LRESULT CALLBACK ComposeWindowProc(HWND window, UINT message,
             client.right - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(g_composeStatus, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_composeSend = CreateWindow(L"BUTTON", L"SEND", WS_CHILD | WS_VISIBLE |
-            WS_TABSTOP | BS_DEFPUSHBUTTON, margin, buttonTop, buttonWidth,
+            WS_TABSTOP | BS_DEFPUSHBUTTON | BS_OWNERDRAW, margin, buttonTop, buttonWidth,
             rowHeight, window, reinterpret_cast<HMENU>(kComposeSendControl),
             GetModuleHandle(NULL), NULL);
         SendMessage(g_composeSend, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
             margin * 2 + buttonWidth, buttonTop, buttonWidth, rowHeight, window,
             reinterpret_cast<HMENU>(IDOK), GetModuleHandle(NULL), NULL);
         SendMessage(backButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
@@ -938,6 +1081,9 @@ void OpenCompose()
 LRESULT CALLBACK HttpWindowProc(HWND window, UINT message,
                                 WPARAM wParam, LPARAM lParam)
 {
+    LRESULT themeResult;
+    if (HandleThemeMessage(window, message, wParam, &themeResult))
+        return themeResult;
     switch (message)
     {
     case WM_CREATE:
@@ -962,11 +1108,11 @@ LRESULT CALLBACK HttpWindowProc(HWND window, UINT message,
             NULL, GetModuleHandle(NULL), NULL);
         SendMessage(g_httpUrl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_httpFetch = CreateWindow(L"BUTTON", L"GET", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
-            BS_DEFPUSHBUTTON, margin, contentTop + rowHeight + 5, actualButtonWidth,
+            BS_DEFPUSHBUTTON | BS_OWNERDRAW, margin, contentTop + rowHeight + 5, actualButtonWidth,
             rowHeight, window, reinterpret_cast<HMENU>(kHttpFetchControl),
             GetModuleHandle(NULL), NULL);
         SendMessage(g_httpFetch, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
             margin * 2 + actualButtonWidth, contentTop + rowHeight + 5, actualButtonWidth,
             rowHeight, window, reinterpret_cast<HMENU>(IDOK), GetModuleHandle(NULL), NULL);
         SendMessage(backButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
@@ -1064,6 +1210,9 @@ void SelectFeedSource(int index)
 LRESULT CALLBACK FeedWindowProc(HWND window, UINT message,
                                 WPARAM wParam, LPARAM lParam)
 {
+    LRESULT themeResult;
+    if (HandleThemeMessage(window, message, wParam, &themeResult))
+        return themeResult;
     switch (message)
     {
     case WM_CREATE:
@@ -1102,11 +1251,11 @@ LRESULT CALLBACK FeedWindowProc(HWND window, UINT message,
                         reinterpret_cast<LPARAM>(kFeedSources[index].name));
         SendMessage(g_feedSource, CB_SETCURSEL, 0, 0);
         g_feedFetch = CreateWindow(L"BUTTON", L"OPEN RSS", WS_CHILD | WS_VISIBLE |
-            WS_TABSTOP | BS_DEFPUSHBUTTON, margin, buttonTop, buttonWidth,
+            WS_TABSTOP | BS_DEFPUSHBUTTON | BS_OWNERDRAW, margin, buttonTop, buttonWidth,
             rowHeight, window, reinterpret_cast<HMENU>(kFeedFetchControl),
             GetModuleHandle(NULL), NULL);
         SendMessage(g_feedFetch, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
             margin * 2 + buttonWidth, buttonTop, buttonWidth,
             rowHeight, window, reinterpret_cast<HMENU>(IDOK), GetModuleHandle(NULL), NULL);
         SendMessage(backButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
@@ -1252,6 +1401,9 @@ void AddInboxMessage(const ReviveUiInboxMessage* message)
 LRESULT CALLBACK ReaderWindowProc(HWND window, UINT message,
                                   WPARAM wParam, LPARAM lParam)
 {
+    LRESULT themeResult;
+    if (HandleThemeMessage(window, message, wParam, &themeResult))
+        return themeResult;
     switch (message)
     {
     case WM_CREATE:
@@ -1288,19 +1440,19 @@ LRESULT CALLBACK ReaderWindowProc(HWND window, UINT message,
             window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(g_readerBody, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_readerLoadMore = CreateWindow(L"BUTTON", L"LOAD MORE",
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP, margin,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, margin,
             client.bottom - (rowHeight + margin), (client.right - 3 * margin) / 2,
             rowHeight, window, reinterpret_cast<HMENU>(kReaderLoadMoreControl),
             GetModuleHandle(NULL), NULL);
         SendMessage(g_readerLoadMore, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         HWND replyButton = CreateWindow(L"BUTTON", L"REPLY",
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP, margin,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, margin,
             client.bottom - (2 * rowHeight + margin + 4),
             (client.right - 3 * margin) / 2, rowHeight, window,
             reinterpret_cast<HMENU>(kReaderReplyControl),
             GetModuleHandle(NULL), NULL);
         SendMessage(replyButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
             margin * 2 + (client.right - 3 * margin) / 2,
             client.bottom - (rowHeight + margin), (client.right - 3 * margin) / 2,
             rowHeight, window, reinterpret_cast<HMENU>(IDOK), GetModuleHandle(NULL), NULL);
@@ -1430,7 +1582,7 @@ void CreateChildControls(HWND window)
         margin + credentialLabelWidth, top, passwordEditWidth, rowHeight, window,
         reinterpret_cast<HMENU>(IDC_APP_PASSWORD), GetModuleHandle(NULL), NULL);
     SendMessage(g_passwordEdit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-    g_passwordToggle = CreateWindow(L"BUTTON", L"SHOW", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+    g_passwordToggle = CreateWindow(L"BUTTON", L"SHOW", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
         margin + credentialLabelWidth + passwordEditWidth + 4, top, passwordToggleWidth,
         rowHeight, window, reinterpret_cast<HMENU>(IDC_TOGGLE_PASSWORD),
         GetModuleHandle(NULL), NULL);
@@ -1438,29 +1590,29 @@ void CreateChildControls(HWND window)
     top += rowHeight + margin / 2;
     const int buttonWidth = (width - 3 * margin) / 2;
     const int buttonHeight = rowHeight + 5;
-    g_runButton = CreateWindow(L"BUTTON", L"TEST TLS", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+    g_runButton = CreateWindow(L"BUTTON", L"TEST TLS", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
         margin, top, buttonWidth, buttonHeight, window,
         reinterpret_cast<HMENU>(IDC_RUN_TEST), GetModuleHandle(NULL), NULL);
     SendMessage(g_runButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-    g_refreshButton = CreateWindow(L"BUTTON", L"REFRESH INBOX", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+    g_refreshButton = CreateWindow(L"BUTTON", L"REFRESH INBOX", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON | BS_OWNERDRAW,
         margin * 2 + buttonWidth, top, buttonWidth, buttonHeight, window,
         reinterpret_cast<HMENU>(IDC_REFRESH_INBOX), GetModuleHandle(NULL), NULL);
     SendMessage(g_refreshButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += buttonHeight + 5;
-    g_openButton = CreateWindow(L"BUTTON", L"OPEN", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+    g_openButton = CreateWindow(L"BUTTON", L"OPEN", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
         margin, top, buttonWidth, buttonHeight, window,
         reinterpret_cast<HMENU>(IDC_OPEN_MESSAGE), GetModuleHandle(NULL), NULL);
     SendMessage(g_openButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-    g_composeButton = CreateWindow(L"BUTTON", L"COMPOSE", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+    g_composeButton = CreateWindow(L"BUTTON", L"COMPOSE", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
         margin * 2 + buttonWidth, top, buttonWidth, buttonHeight, window,
         reinterpret_cast<HMENU>(IDC_COMPOSE), GetModuleHandle(NULL), NULL);
     SendMessage(g_composeButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += buttonHeight + margin / 2;
-    g_webButton = CreateWindow(L"BUTTON", L"WEB GET", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+    g_webButton = CreateWindow(L"BUTTON", L"WEB GET", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
         margin, top, buttonWidth, buttonHeight, window,
         reinterpret_cast<HMENU>(IDC_WEB_GET), GetModuleHandle(NULL), NULL);
     SendMessage(g_webButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-    g_feedsButton = CreateWindow(L"BUTTON", L"FEEDS", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+    g_feedsButton = CreateWindow(L"BUTTON", L"FEEDS", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
         margin * 2 + buttonWidth, top, buttonWidth, buttonHeight, window,
         reinterpret_cast<HMENU>(IDC_FEEDS), GetModuleHandle(NULL), NULL);
     SendMessage(g_feedsButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
@@ -1520,6 +1672,7 @@ ATOM RegisterReviveWindowClass(HINSTANCE instance)
 
 HWND CreateReviveMainWindow(HINSTANCE instance, int showCommand)
 {
+    InitializeTheme();
     HWND window = CreateWindow(kWindowClass, L"ReviveCE Mail", WS_VISIBLE | WS_CAPTION | WS_SYSMENU,
         CW_USEDEFAULT, CW_USEDEFAULT, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN),
         NULL, NULL, instance, NULL);
@@ -1533,6 +1686,9 @@ HWND CreateReviveMainWindow(HINSTANCE instance, int showCommand)
 
 LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    LRESULT themeResult;
+    if (HandleThemeMessage(window, message, wParam, &themeResult))
+        return themeResult;
     switch (message)
     {
     case WM_CREATE:
@@ -1647,6 +1803,7 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
             DestroyWindow(g_httpWindow);
         if (g_feedWindow != NULL)
             DestroyWindow(g_feedWindow);
+        DestroyTheme();
         g_mainWindow = NULL;
         PostQuitMessage(0);
         return 0;
