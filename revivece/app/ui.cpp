@@ -502,7 +502,12 @@ LRESULT CALLBACK ComposeWindowProc(HWND window, UINT message,
         HFONT font = static_cast<HFONT>(GetStockObject(SYSTEM_FONT));
         const int margin = 12;
         const int rowHeight = 24;
+        const int buttonTop = margin + (rowHeight + 4) * 3;
+        const int bodyTop = buttonTop + rowHeight + 4;
+        int buttonWidth;
+        int bodyHeight;
         GetClientRect(window, &client);
+        buttonWidth = (client.right - 3 * margin) / 2;
         HWND recipientLabel = CreateWindow(L"STATIC", L"To:", WS_CHILD | WS_VISIBLE,
             margin, margin, 42, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(recipientLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
@@ -524,23 +529,23 @@ LRESULT CALLBACK ComposeWindowProc(HWND window, UINT message,
             WS_CHILD | WS_VISIBLE, margin, margin + (rowHeight + 4) * 2,
             client.right - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(g_composeStatus, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        g_composeBody = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER |
-            WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
-            margin, margin + (rowHeight + 4) * 3, client.right - 2 * margin,
-            client.bottom - (margin * 2 + (rowHeight + 4) * 5), window, NULL,
-            GetModuleHandle(NULL), NULL);
-        SendMessage(g_composeBody, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_composeSend = CreateWindow(L"BUTTON", L"SEND", WS_CHILD | WS_VISIBLE |
-            WS_TABSTOP | BS_DEFPUSHBUTTON, margin,
-            client.bottom - (margin + rowHeight), (client.right - 3 * margin) / 2,
+            WS_TABSTOP | BS_DEFPUSHBUTTON, margin, buttonTop, buttonWidth,
             rowHeight, window, reinterpret_cast<HMENU>(kComposeSendControl),
             GetModuleHandle(NULL), NULL);
         SendMessage(g_composeSend, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-            margin * 2 + (client.right - 3 * margin) / 2,
-            client.bottom - (margin + rowHeight), (client.right - 3 * margin) / 2,
-            rowHeight, window, reinterpret_cast<HMENU>(IDOK), GetModuleHandle(NULL), NULL);
+            margin * 2 + buttonWidth, buttonTop, buttonWidth, rowHeight, window,
+            reinterpret_cast<HMENU>(IDOK), GetModuleHandle(NULL), NULL);
         SendMessage(backButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        bodyHeight = client.bottom - bodyTop - margin;
+        if (bodyHeight < rowHeight * 2)
+            bodyHeight = rowHeight * 2;
+        g_composeBody = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER |
+            WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
+            margin, bodyTop, client.right - 2 * margin, bodyHeight, window, NULL,
+            GetModuleHandle(NULL), NULL);
+        SendMessage(g_composeBody, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         SetFocus(g_composeRecipient);
         return 0;
     }
