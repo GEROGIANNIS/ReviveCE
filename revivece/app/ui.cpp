@@ -177,8 +177,20 @@ bool HandleThemeMessage(HWND window, UINT message, WPARAM wParam,
             wchar_t label[64];
             HBRUSH brush = (item->itemState & ODS_SELECTED) != 0 ?
                 g_accentBrush : g_surfaceBrush;
+            RECT border;
             FillRect(item->hDC, &item->rcItem, brush);
-            FrameRect(item->hDC, &item->rcItem, g_accentBrush);
+            border = item->rcItem;
+            border.bottom = border.top + 1;
+            FillRect(item->hDC, &border, g_accentBrush);
+            border = item->rcItem;
+            border.top = border.bottom - 1;
+            FillRect(item->hDC, &border, g_accentBrush);
+            border = item->rcItem;
+            border.right = border.left + 1;
+            FillRect(item->hDC, &border, g_accentBrush);
+            border = item->rcItem;
+            border.left = border.right - 1;
+            FillRect(item->hDC, &border, g_accentBrush);
             label[0] = L'\0';
             GetWindowText(item->hwndItem, label, sizeof(label) / sizeof(wchar_t));
             SetTextColor(item->hDC, (item->itemState & ODS_SELECTED) != 0 ?
