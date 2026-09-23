@@ -7,6 +7,8 @@ namespace
 const int kReadBufferCapacity = 512;
 const int kLineCapacity = 1024;
 const int kDataCapacity = REVIVE_SMTP_BODY_CAPACITY * 2 + 1024;
+const char* const kSignature =
+    "--\r\nSent from my HTC Touch Pro with ReviveCE";
 
 struct SmtpReader
 {
@@ -260,6 +262,9 @@ bool BuildData(const ReviveImapCredentials* credentials,
         }
     }
     if (!atLineStart && !AppendCrLf(data, capacity, &length))
+        return false;
+    if (!AppendText(data, capacity, &length, kSignature) ||
+        !AppendCrLf(data, capacity, &length))
         return false;
     return AppendText(data, capacity, &length, ".\r\n");
 }

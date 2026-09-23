@@ -123,8 +123,10 @@ subject prefilled.
 After a successful inbox refresh, tap **COMPOSE** to enter a recipient, an
 ASCII subject, and plain-text body, then tap **SEND**. The same temporary
 in-memory App Password is reused; the compose form and its message are not
-written to disk or logs. `SENT. Gmail accepted the message.` means Gmail's SMTP
-server accepted it for delivery, not that a recipient has read it.
+written to disk or logs. Each outgoing message automatically ends with:
+`--` followed by `Sent from my HTC Touch Pro with ReviveCE`. `SENT. Gmail
+accepted the message.` means Gmail's SMTP server accepted it for delivery, not
+that a recipient has read it.
 
 Tap **WEB GET** to open the HTTPS test screen. Enter an `https://` URL and tap
 **GET**. The response view shows at most 32 KiB and labels a truncated result.
