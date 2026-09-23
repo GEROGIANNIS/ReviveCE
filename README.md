@@ -20,7 +20,7 @@ The repository currently contains the **M0-M8 ReviveTLS mail, HTTPS, and feed pr
 - SNI, certificate-chain verification, and hostname verification;
 - alternate-chain validation for Google's appended cross-signed compatibility
   roots, without weakening peer verification;
-- Google's maintained 21-certificate service trust bundle, shipped beside the
+- a reviewed Google and Let's Encrypt service trust bundle, shipped beside the
   executable rather than using Windows Mobile's obsolete certificate store;
 - a required encrypted IMAP greeting before the TLS test reports success;
 - a Gmail App Password held only in the active application session, never
@@ -69,11 +69,10 @@ screen starts with `https://www.google.com/robots.txt`; it verifies the URL's
 hostname and certificate before showing a bounded response. Redirects,
 compressed responses, downloads, and cookies are intentionally deferred.
 
-M8 adds **FEEDS**, prefilled with `https://hnrss.org/frontpage`. It downloads a
-single HTTPS RSS 2.0 or Atom 1.0 document and lists up to 25 titles with dates.
-Feeds are not saved, article pages and summaries cannot be opened yet, and the
-32 KiB HTTP response bound still applies. Its next acceptance test is on the
-physical phone.
+M8 adds **FEEDS**, with selectable Hacker News RSS endpoints plus a manual HTTPS
+URL field. It downloads an RSS 2.0 or Atom 1.0 document and lists up to 25
+titles with dates. Feeds are not saved, article pages and summaries cannot be
+opened yet, and the 32 KiB HTTP response bound still applies.
 
 The build reports TLS, certificate, hostname, and SERVICE status separately. Any
 missing bundle, failed handshake, invalid chain, hostname mismatch, or missing
@@ -112,6 +111,8 @@ is reused. If a message cannot be read, the IMAP
 row now states the specific test outcome, such as `MESSAGE TEXT TOO LARGE` or
 `MESSAGE FORMAT NOT SUPPORTED`, alongside its diagnostic code. In the reader,
 tap **LOAD MORE** when it is enabled to expand a large message safely.
+Tap **REPLY** in the reader to open compose with the sender and a bounded `Re:`
+subject prefilled.
 
 After a successful inbox refresh, tap **COMPOSE** to enter a recipient, an
 ASCII subject, and plain-text body, then tap **SEND**. The same temporary
@@ -122,10 +123,9 @@ server accepted it for delivery, not that a recipient has read it.
 Tap **WEB GET** to open the HTTPS test screen. Enter an `https://` URL and tap
 **GET**. The response view shows at most 32 KiB and labels a truncated result.
 
-Tap **FEEDS** to fetch an HTTPS RSS or Atom feed. The initial URL is Google
-Blog's feed. **REFRESH** clears the old list, then displays up to 25 item titles
-and dates after a verified response. The app currently does not save feeds or
-open individual articles.
+Tap **FEEDS** to choose an HTTPS RSS or Atom feed. **OPEN RSS** clears the old
+list, then displays up to 25 item titles and dates after a verified response.
+The app currently does not save feeds or open individual articles.
 
 ## Layout
 

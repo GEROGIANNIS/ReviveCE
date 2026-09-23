@@ -21,6 +21,7 @@ const int kComposeSendControl = 2002;
 const int kHttpFetchControl = 2003;
 const int kFeedFetchControl = 2004;
 const int kFeedSourceControl = 2005;
+const int kReaderReplyControl = 2006;
 const char* const kImapServerHost = "imap.gmail.com";
 const unsigned short kImapServerPort = 993;
 const char* const kSmtpServerHost = "smtp.gmail.com";
@@ -62,6 +63,8 @@ HWND g_mainWindow = NULL;
 unsigned long g_readerUid = 0;
 unsigned long g_readerDisplayedBytes = 0;
 bool g_readerHasMore = false;
+wchar_t g_replyRecipient[REVIVE_IMAP_SENDER_CAPACITY];
+wchar_t g_replySubject[REVIVE_IMAP_SUBJECT_CAPACITY];
 HWND g_composeWindow = NULL;
 HWND g_composeRecipient = NULL;
 HWND g_composeSubject = NULL;
@@ -238,6 +241,74 @@ void CopyUtf8ToWide(wchar_t* destination, int capacity, const char* source)
     destination[0] = L'\0';
     if (source != NULL && source[0] != '\0')
         MultiByteToWideChar(CP_UTF8, 0, source, -1, destination, capacity);
+}
+
+void CreatePanelHeader(HWND window, const wchar_t* section, HFONT font,
+                       int width, int margin)
+{
+    wchar_t text[96];
+    wsprintf(text, L"REVIVECE  |  %s", section);
+    HWND header = CreateWindow(L"STATIC", text, WS_CHILD | WS_VISIBLE,
+        margin, margin, width - 2 * margin, 28, window, NULL,
+        GetModuleHandle(NULL), NULL);
+    SendMessage(header, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+}
+
+void CopyReplyAddress(wchar_t* destination, int capacity, const wchar_t* sender)
+{
+    const wchar_t* start;
+    const wchar_t* end;
+    int output = 0;
+    if (destination == NULL || capacity <= 0)
+        return;
+    destination[0] = L'\0';
+    if (sender == NULL)
+        return;
+    start = sender;
+    while (*start != L'\0' && *start != L'<')
+        ++start;
+    if (*start == L'<')
+        ++start;
+    else
+        start = sender;
+    end = start;
+    while (*end != L'\0' && *end != L'>')
+        ++end;
+    while (start < end && (*start == L' ' || *start == L'\t'))
+        ++start;
+    while (end > start && (end[-1] == L' ' || end[-1] == L'\t'))
+        --end;
+    while (start < end && output < capacity - 1)
+        destination[output++] = *start++;
+    destination[output] = L'\0';
+}
+
+void PrepareReply(const ReviveUiMessageBody* content)
+{
+    int index = 0;
+    if (content == NULL)
+        return;
+    CopyReplyAddress(g_replyRecipient,
+                     sizeof(g_replyRecipient) / sizeof(wchar_t), content->sender);
+    g_replySubject[0] = L'\0';
+    if (content->subject[0] == L'R' && content->subject[1] == L'e' &&
+        content->subject[2] == L':' && content->subject[3] == L' ')
+        lstrcpyn(g_replySubject, content->subject,
+                 sizeof(g_replySubject) / sizeof(wchar_t));
+    else
+    {
+        g_replySubject[index++] = L'R';
+        g_replySubject[index++] = L'e';
+        g_replySubject[index++] = L':';
+        g_replySubject[index++] = L' ';
+        while (content->subject[index - 4] != L'\0' &&
+               index < static_cast<int>(sizeof(g_replySubject) / sizeof(wchar_t)) - 1)
+        {
+            g_replySubject[index] = content->subject[index - 4];
+            ++index;
+        }
+        g_replySubject[index] = L'\0';
+    }
 }
 
 void PostInboxMessage(HWND window, const ReviveImapMessage* message)
@@ -738,31 +809,33 @@ LRESULT CALLBACK ComposeWindowProc(HWND window, UINT message,
         HFONT font = static_cast<HFONT>(GetStockObject(SYSTEM_FONT));
         const int margin = 12;
         const int rowHeight = 24;
-        const int buttonTop = margin + (rowHeight + 4) * 3;
+        const int contentTop = margin + 34;
+        const int buttonTop = contentTop + (rowHeight + 4) * 3;
         const int bodyTop = buttonTop + rowHeight + 4;
         int buttonWidth;
         int bodyHeight;
         GetClientRect(window, &client);
         buttonWidth = (client.right - 3 * margin) / 2;
+        CreatePanelHeader(window, L"COMPOSE", font, client.right, margin);
         HWND recipientLabel = CreateWindow(L"STATIC", L"To:", WS_CHILD | WS_VISIBLE,
-            margin, margin, 42, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+            margin, contentTop, 42, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(recipientLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_composeRecipient = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER |
-            WS_TABSTOP | ES_AUTOHSCROLL, margin + 42, margin,
+            WS_TABSTOP | ES_AUTOHSCROLL, margin + 42, contentTop,
             client.right - 2 * margin - 42, rowHeight, window, NULL,
             GetModuleHandle(NULL), NULL);
         SendMessage(g_composeRecipient, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         HWND subjectLabel = CreateWindow(L"STATIC", L"Subject:", WS_CHILD | WS_VISIBLE,
-            margin, margin + rowHeight + 4, 52, rowHeight, window, NULL,
+            margin, contentTop + rowHeight + 4, 52, rowHeight, window, NULL,
             GetModuleHandle(NULL), NULL);
         SendMessage(subjectLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_composeSubject = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER |
-            WS_TABSTOP | ES_AUTOHSCROLL, margin + 52, margin + rowHeight + 4,
+            WS_TABSTOP | ES_AUTOHSCROLL, margin + 52, contentTop + rowHeight + 4,
             client.right - 2 * margin - 52, rowHeight, window, NULL,
             GetModuleHandle(NULL), NULL);
         SendMessage(g_composeSubject, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_composeStatus = CreateWindow(L"STATIC", L"Plain text only. ASCII subject.",
-            WS_CHILD | WS_VISIBLE, margin, margin + (rowHeight + 4) * 2,
+            WS_CHILD | WS_VISIBLE, margin, contentTop + (rowHeight + 4) * 2,
             client.right - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(g_composeStatus, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_composeSend = CreateWindow(L"BUTTON", L"SEND", WS_CHILD | WS_VISIBLE |
@@ -832,12 +905,19 @@ void OpenCompose()
         SetRow(REVIVE_UI_IMAP, REVIVE_UI_FAILED, REVIVE_SMTP_CONFIGURATION_ERROR);
         return;
     }
+    RECT client;
+    GetClientRect(g_mainWindow, &client);
     g_composeWindow = CreateWindow(kComposeWindowClass, L"ReviveCE Compose",
-        WS_VISIBLE | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT,
-        GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), NULL, NULL,
-        GetModuleHandle(NULL), NULL);
+        WS_CHILD | WS_VISIBLE, 0, 0, client.right, client.bottom,
+        g_mainWindow, NULL, GetModuleHandle(NULL), NULL);
     if (g_composeWindow != NULL)
     {
+        if (g_replyRecipient[0] != L'\0')
+            SetWindowText(g_composeRecipient, g_replyRecipient);
+        if (g_replySubject[0] != L'\0')
+            SetWindowText(g_composeSubject, g_replySubject);
+        g_replyRecipient[0] = L'\0';
+        g_replySubject[0] = L'\0';
         ShowWindow(g_composeWindow, SW_SHOW);
         UpdateWindow(g_composeWindow);
     }
@@ -854,33 +934,35 @@ LRESULT CALLBACK HttpWindowProc(HWND window, UINT message,
         HFONT font = static_cast<HFONT>(GetStockObject(SYSTEM_FONT));
         const int margin = 12;
         const int rowHeight = 24;
+        const int contentTop = margin + 34;
         int actualButtonWidth;
         int bodyTop;
         int bodyHeight;
         GetClientRect(window, &client);
         actualButtonWidth = (client.right - 3 * margin) / 2;
+        CreatePanelHeader(window, L"HTTPS", font, client.right, margin);
         HWND urlLabel = CreateWindow(L"STATIC", L"HTTPS URL:", WS_CHILD | WS_VISIBLE,
-            margin, margin, 72, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+            margin, contentTop, 72, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(urlLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_httpUrl = CreateWindow(L"EDIT", L"https://www.google.com/robots.txt",
             WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL,
-            margin + 72, margin, client.right - 2 * margin - 72, rowHeight, window,
+            margin + 72, contentTop, client.right - 2 * margin - 72, rowHeight, window,
             NULL, GetModuleHandle(NULL), NULL);
         SendMessage(g_httpUrl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_httpFetch = CreateWindow(L"BUTTON", L"GET", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
-            BS_DEFPUSHBUTTON, margin, margin + rowHeight + 5, actualButtonWidth,
+            BS_DEFPUSHBUTTON, margin, contentTop + rowHeight + 5, actualButtonWidth,
             rowHeight, window, reinterpret_cast<HMENU>(kHttpFetchControl),
             GetModuleHandle(NULL), NULL);
         SendMessage(g_httpFetch, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-            margin * 2 + actualButtonWidth, margin + rowHeight + 5, actualButtonWidth,
+            margin * 2 + actualButtonWidth, contentTop + rowHeight + 5, actualButtonWidth,
             rowHeight, window, reinterpret_cast<HMENU>(IDOK), GetModuleHandle(NULL), NULL);
         SendMessage(backButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_httpStatus = CreateWindow(L"STATIC", L"HTTPS only. Response limit: 32 KiB.",
-            WS_CHILD | WS_VISIBLE, margin, margin + (rowHeight + 5) * 2,
+            WS_CHILD | WS_VISIBLE, margin, contentTop + (rowHeight + 5) * 2,
             client.right - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(g_httpStatus, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        bodyTop = margin + (rowHeight + 5) * 3;
+        bodyTop = contentTop + (rowHeight + 5) * 3;
         bodyHeight = client.bottom - bodyTop - margin;
         if (bodyHeight < rowHeight * 2)
             bodyHeight = rowHeight * 2;
@@ -949,10 +1031,11 @@ void OpenHttp()
         ShowWindow(g_httpWindow, SW_SHOW);
         return;
     }
+    RECT client;
+    GetClientRect(g_mainWindow, &client);
     g_httpWindow = CreateWindow(kHttpWindowClass, L"ReviveCE HTTPS",
-        WS_VISIBLE | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT,
-        GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), NULL, NULL,
-        GetModuleHandle(NULL), NULL);
+        WS_CHILD | WS_VISIBLE, 0, 0, client.right, client.bottom,
+        g_mainWindow, NULL, GetModuleHandle(NULL), NULL);
     if (g_httpWindow != NULL)
     {
         ShowWindow(g_httpWindow, SW_SHOW);
@@ -978,18 +1061,20 @@ LRESULT CALLBACK FeedWindowProc(HWND window, UINT message,
         HFONT font = static_cast<HFONT>(GetStockObject(SYSTEM_FONT));
         const int margin = 12;
         const int rowHeight = 24;
+        const int contentTop = margin + 34;
         int buttonWidth;
         int listTop;
-        const int sourceTop = margin + rowHeight + 5;
+        const int sourceTop = contentTop + rowHeight + 5;
         const int buttonTop = sourceTop + rowHeight + 5;
         GetClientRect(window, &client);
         buttonWidth = (client.right - 3 * margin) / 2;
+        CreatePanelHeader(window, L"FEEDS", font, client.right, margin);
         HWND urlLabel = CreateWindow(L"STATIC", L"Feed URL:", WS_CHILD | WS_VISIBLE,
-            margin, margin, 60, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+            margin, contentTop, 60, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(urlLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_feedUrl = CreateWindow(L"EDIT", L"https://hnrss.org/frontpage",
             WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL,
-            margin + 60, margin, client.right - 2 * margin - 60, rowHeight, window,
+            margin + 60, contentTop, client.right - 2 * margin - 60, rowHeight, window,
             NULL, GetModuleHandle(NULL), NULL);
         SendMessage(g_feedUrl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         HWND sourceLabel = CreateWindow(L"STATIC", L"RSS Feed:", WS_CHILD | WS_VISIBLE,
@@ -1107,10 +1192,11 @@ void OpenFeeds()
         ShowWindow(g_feedWindow, SW_SHOW);
         return;
     }
+    RECT client;
+    GetClientRect(g_mainWindow, &client);
     g_feedWindow = CreateWindow(kFeedWindowClass, L"ReviveCE Feeds",
-        WS_VISIBLE | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT,
-        GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), NULL, NULL,
-        GetModuleHandle(NULL), NULL);
+        WS_CHILD | WS_VISIBLE, 0, 0, client.right, client.bottom,
+        g_mainWindow, NULL, GetModuleHandle(NULL), NULL);
     if (g_feedWindow != NULL)
     {
         ShowWindow(g_feedWindow, SW_SHOW);
@@ -1167,26 +1253,28 @@ LRESULT CALLBACK ReaderWindowProc(HWND window, UINT message,
         HFONT font = static_cast<HFONT>(GetStockObject(SYSTEM_FONT));
         const int margin = 12;
         const int rowHeight = 24;
+        const int contentTop = margin + 34;
         wchar_t from[384];
         GetClientRect(window, &client);
+        CreatePanelHeader(window, L"MESSAGE", font, client.right, margin);
         wsprintf(from, L"%s", content->sender[0] != L'\0' ? content->sender : L"(unknown sender)");
         HWND fromControl = CreateWindow(L"STATIC", from, WS_CHILD | WS_VISIBLE,
-            margin, margin, client.right - 2 * margin, rowHeight, window, NULL,
+            margin, contentTop, client.right - 2 * margin, rowHeight, window, NULL,
             GetModuleHandle(NULL), NULL);
         SendMessage(fromControl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         HWND subjectControl = CreateWindow(L"STATIC",
             content->subject[0] != L'\0' ? content->subject : L"(no subject)",
-            WS_CHILD | WS_VISIBLE, margin, margin + rowHeight,
+            WS_CHILD | WS_VISIBLE, margin, contentTop + rowHeight,
             client.right - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(subjectControl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_readerDetail = CreateWindow(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
-            margin, margin + 2 * rowHeight, client.right - 2 * margin, rowHeight,
+            margin, contentTop + 2 * rowHeight, client.right - 2 * margin, rowHeight,
             window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(g_readerDetail, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_readerBody = CreateWindow(L"EDIT", content->body,
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL |
             ES_READONLY | WS_VSCROLL, margin, margin + 3 * rowHeight,
-            client.right - 2 * margin, client.bottom - (5 * rowHeight + 2 * margin),
+            client.right - 2 * margin, client.bottom - (5 * rowHeight + 2 * margin + 34),
             window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(g_readerBody, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_readerLoadMore = CreateWindow(L"BUTTON", L"LOAD MORE",
@@ -1195,6 +1283,13 @@ LRESULT CALLBACK ReaderWindowProc(HWND window, UINT message,
             rowHeight, window, reinterpret_cast<HMENU>(kReaderLoadMoreControl),
             GetModuleHandle(NULL), NULL);
         SendMessage(g_readerLoadMore, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        HWND replyButton = CreateWindow(L"BUTTON", L"REPLY",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP, margin,
+            client.bottom - (2 * rowHeight + margin + 4),
+            (client.right - 3 * margin) / 2, rowHeight, window,
+            reinterpret_cast<HMENU>(kReaderReplyControl),
+            GetModuleHandle(NULL), NULL);
+        SendMessage(replyButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
             margin * 2 + (client.right - 3 * margin) / 2,
             client.bottom - (rowHeight + margin), (client.right - 3 * margin) / 2,
@@ -1203,6 +1298,7 @@ LRESULT CALLBACK ReaderWindowProc(HWND window, UINT message,
         g_readerUid = content->uid;
         g_readerDisplayedBytes = content->displayedBytes;
         g_readerHasMore = content->hasMore;
+        PrepareReply(content);
         wchar_t notice[160];
         wsprintf(notice, L"%s%s%s", content->date,
                  content->usedHtmlFallback ? L"  (HTML converted to text)" : L"",
@@ -1226,6 +1322,11 @@ LRESULT CALLBACK ReaderWindowProc(HWND window, UINT message,
                 nextBytes = REVIVE_IMAP_BODY_CAPACITY;
             EnableWindow(g_readerLoadMore, FALSE);
             BeginWorker(g_mainWindow, WORKER_MESSAGE_FETCH, g_readerUid, nextBytes);
+            return 0;
+        }
+        if (LOWORD(wParam) == kReaderReplyControl && HIWORD(wParam) == BN_CLICKED)
+        {
+            OpenCompose();
             return 0;
         }
         break;
@@ -1265,10 +1366,11 @@ void ShowMessageReader(ReviveUiMessageBody* content)
     }
     if (g_readerWindow != NULL)
         DestroyWindow(g_readerWindow);
+    RECT client;
+    GetClientRect(g_mainWindow, &client);
     g_readerWindow = CreateWindow(kReaderWindowClass, L"ReviveCE Message",
-        WS_VISIBLE | WS_CAPTION | WS_SYSMENU,
-        CW_USEDEFAULT, CW_USEDEFAULT, GetSystemMetrics(SM_CXSCREEN),
-        GetSystemMetrics(SM_CYSCREEN), NULL, NULL, GetModuleHandle(NULL), content);
+        WS_CHILD | WS_VISIBLE, 0, 0, client.right, client.bottom,
+        g_mainWindow, NULL, GetModuleHandle(NULL), content);
     if (g_readerWindow != NULL)
     {
         ShowWindow(g_readerWindow, SW_SHOW);
@@ -1290,7 +1392,7 @@ void CreateChildControls(HWND window)
     const int passwordEditWidth = width - (2 * margin + credentialLabelWidth +
                                             passwordToggleWidth + 4);
     int top = margin;
-    HWND title = CreateWindow(L"STATIC", L"ReviveCE Mail (M8)", WS_CHILD | WS_VISIBLE | SS_CENTER,
+    HWND title = CreateWindow(L"STATIC", L"REVIVECE  |  MAIL", WS_CHILD | WS_VISIBLE | SS_CENTER,
         margin, top, width - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
     SendMessage(title, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight + margin / 2;
@@ -1519,7 +1621,7 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
             EnableWindow(g_httpFetch, TRUE);
         if (g_feedFetch != NULL)
             EnableWindow(g_feedFetch, TRUE);
-        SetFocus(g_refreshButton);
+            SetFocus(g_inboxCanOpen ? g_inbox : g_refreshButton);
         ReviveLog("APP", wParam ? "secure operation completed" : "secure operation failed", 0);
         return 0;
     case WM_CLOSE:
