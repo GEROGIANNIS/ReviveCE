@@ -9,6 +9,13 @@
 #include "resource.h"
 #include "../common/log.h"
 
+#ifdef REVIVECE_WITH_WOLFSSL
+#include <wolfssl/wolfcrypt/aes.h>
+#include <wolfssl/wolfcrypt/random.h>
+#include <wolfssl/wolfcrypt/sha256.h>
+#include <pkfuncs.h>
+#endif
+
 namespace
 {
 const wchar_t* const kWindowClass = L"ReviveTLSWindow";
@@ -22,12 +29,19 @@ const int kHttpFetchControl = 2003;
 const int kFeedFetchControl = 2004;
 const int kFeedSourceControl = 2005;
 const int kReaderReplyControl = 2006;
+const int kAccountForgetControl = 2007;
 const char* const kImapServerHost = "imap.gmail.com";
 const unsigned short kImapServerPort = 993;
 const char* const kSmtpServerHost = "smtp.gmail.com";
 const unsigned short kSmtpServerPort = 465;
 const DWORD kConnectTimeoutMilliseconds = 15000;
 const wchar_t* const kCABundleFileName = L"google-roots.pem";
+const wchar_t* const kAccountFile = L"\\Application Data\\ReviveCE\\account.dat";
+const unsigned int kAccountMagic = 0x52435641;
+const unsigned int kAccountVersion = 1;
+const int kAccountPayloadBytes = REVIVE_IMAP_EMAIL_CAPACITY +
+                                 REVIVE_IMAP_PASSWORD_CAPACITY;
+const int kAccountCipherBytes = 256;
 const COLORREF kShellColor = RGB(18, 28, 42);
 const COLORREF kSurfaceColor = RGB(31, 47, 64);
 const COLORREF kInputColor = RGB(242, 246, 247);
@@ -58,6 +72,11 @@ HWND g_feedsButton = NULL;
 HWND g_emailEdit = NULL;
 HWND g_passwordEdit = NULL;
 HWND g_passwordToggle = NULL;
+HWND g_emailLabel = NULL;
+HWND g_passwordLabel = NULL;
+HWND g_accountRemember = NULL;
+HWND g_accountSaved = NULL;
+HWND g_accountForget = NULL;
 bool g_passwordVisible = false;
 HWND g_inbox = NULL;
 HANDLE g_workerThread = NULL;
@@ -88,6 +107,7 @@ HWND g_feedSource = NULL;
 HWND g_feedFetch = NULL;
 HWND g_feedStatus = NULL;
 HWND g_feedItems = NULL;
+ReviveImapCredentials g_sessionCredentials;
 
 struct ReviveFeedSource
 {
@@ -104,8 +124,8 @@ const ReviveFeedSource kFeedSources[] =
     { L"Hacker News Show", L"https://hnrss.org/show" }
 };
 const int kFeedSourceCount = sizeof(kFeedSources) / sizeof(kFeedSources[0]);
-ReviveImapCredentials g_sessionCredentials;
 bool g_inboxCanOpen = false;
+bool g_accountStored = false;
 HBRUSH g_shellBrush = NULL;
 HBRUSH g_surfaceBrush = NULL;
 HBRUSH g_inputBrush = NULL;
@@ -117,6 +137,149 @@ void ClearBytes(void* value, unsigned int length)
     while (length-- != 0)
         *cursor++ = 0;
 }
+
+#ifdef REVIVECE_WITH_WOLFSSL
+struct SavedAccountFile
+{
+    unsigned int magic;
+    unsigned int version;
+    unsigned int cipherLength;
+    unsigned char iv[AES_BLOCK_SIZE];
+    unsigned char cipher[kAccountCipherBytes];
+};
+
+bool BuildAccountKey(unsigned char* key, int capacity)
+{
+    static const unsigned char application[] =
+        "ReviveCE account storage v1";
+    unsigned char deviceId[64];
+    DWORD deviceIdLength = 0;
+    Sha256 sha;
+    if (key == NULL || capacity < 32)
+        return false;
+    if (GetDeviceUniqueID(const_cast<BYTE*>(application),
+                          sizeof(application) - 1, 1, deviceId,
+                          sizeof(deviceId), &deviceIdLength) != S_OK ||
+        deviceIdLength == 0)
+        return false;
+    if (wc_InitSha256(&sha) != 0 ||
+        wc_Sha256Update(&sha, application, sizeof(application) - 1) != 0 ||
+        wc_Sha256Update(&sha, deviceId, deviceIdLength) != 0 ||
+        wc_Sha256Final(&sha, key) != 0)
+    {
+        ClearBytes(&sha, sizeof(sha));
+        return false;
+    }
+    ClearBytes(&sha, sizeof(sha));
+    ClearBytes(deviceId, sizeof(deviceId));
+    return true;
+}
+
+bool SaveAccount(const ReviveImapCredentials* credentials)
+{
+    SavedAccountFile file;
+    unsigned char key[32];
+    unsigned char payload[kAccountPayloadBytes];
+    Aes aes;
+    RNG rng;
+    HANDLE handle;
+    DWORD written = 0;
+    int payloadLength;
+    if (credentials == NULL || credentials->email[0] == '\0' ||
+        credentials->appPassword[0] == '\0' || !BuildAccountKey(key, sizeof(key)))
+        return false;
+    ZeroMemory(&file, sizeof(file));
+    ZeroMemory(payload, sizeof(payload));
+    CopyMemory(payload, credentials->email, sizeof(credentials->email));
+    CopyMemory(payload + sizeof(credentials->email), credentials->appPassword,
+               sizeof(credentials->appPassword));
+    payloadLength = sizeof(payload);
+    if (wc_InitRng(&rng) != 0 ||
+        wc_RNG_GenerateBlock(&rng, file.iv, sizeof(file.iv)) != 0 ||
+        wc_AesSetKey(&aes, key, sizeof(key), file.iv, AES_ENCRYPTION) != 0 ||
+        wc_AesCbcEncrypt(&aes, file.cipher, payload, payloadLength) != 0)
+    {
+        ClearBytes(key, sizeof(key));
+        ClearBytes(payload, sizeof(payload));
+        return false;
+    }
+    file.magic = kAccountMagic;
+    file.version = kAccountVersion;
+    file.cipherLength = payloadLength;
+    CreateDirectory(L"\\Application Data\\ReviveCE", NULL);
+    handle = CreateFile(kAccountFile, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                        FILE_ATTRIBUTE_HIDDEN, NULL);
+    if (handle == INVALID_HANDLE_VALUE ||
+        !WriteFile(handle, &file, sizeof(file), &written, NULL) ||
+        written != sizeof(file))
+    {
+        if (handle != INVALID_HANDLE_VALUE)
+            CloseHandle(handle);
+        ClearBytes(key, sizeof(key));
+        ClearBytes(payload, sizeof(payload));
+        ClearBytes(&file, sizeof(file));
+        return false;
+    }
+    CloseHandle(handle);
+    ClearBytes(&rng, sizeof(rng));
+    ClearBytes(&aes, sizeof(aes));
+    ClearBytes(key, sizeof(key));
+    ClearBytes(payload, sizeof(payload));
+    ClearBytes(&file, sizeof(file));
+    return true;
+}
+
+bool LoadAccount(ReviveImapCredentials* credentials)
+{
+    SavedAccountFile file;
+    unsigned char key[32];
+    unsigned char payload[kAccountPayloadBytes];
+    Aes aes;
+    HANDLE handle;
+    DWORD read = 0;
+    bool loaded = false;
+    if (credentials == NULL || !BuildAccountKey(key, sizeof(key)))
+        return false;
+    ZeroMemory(&file, sizeof(file));
+    ZeroMemory(payload, sizeof(payload));
+    handle = CreateFile(kAccountFile, GENERIC_READ, FILE_SHARE_READ, NULL,
+                        OPEN_EXISTING, FILE_ATTRIBUTE_HIDDEN, NULL);
+    if (handle != INVALID_HANDLE_VALUE &&
+        ReadFile(handle, &file, sizeof(file), &read, NULL) &&
+        read == sizeof(file) && file.magic == kAccountMagic &&
+        file.version == kAccountVersion &&
+        file.cipherLength == sizeof(payload) &&
+        wc_AesSetKey(&aes, key, sizeof(key), file.iv, AES_DECRYPTION) == 0 &&
+        wc_AesCbcDecrypt(&aes, payload, file.cipher, file.cipherLength) == 0)
+    {
+        CopyMemory(credentials->email, payload, sizeof(credentials->email));
+        CopyMemory(credentials->appPassword,
+                   payload + sizeof(credentials->email),
+                   sizeof(credentials->appPassword));
+        credentials->email[sizeof(credentials->email) - 1] = '\0';
+        credentials->appPassword[sizeof(credentials->appPassword) - 1] = '\0';
+        loaded = credentials->email[0] != '\0' &&
+                 credentials->appPassword[0] != '\0';
+    }
+    if (handle != INVALID_HANDLE_VALUE)
+        CloseHandle(handle);
+    ClearBytes(key, sizeof(key));
+    ClearBytes(payload, sizeof(payload));
+    ClearBytes(&file, sizeof(file));
+    ClearBytes(&aes, sizeof(aes));
+    return loaded;
+}
+
+void ForgetAccount()
+{
+    DeleteFile(kAccountFile);
+    ReviveImapClearCredentials(&g_sessionCredentials);
+}
+#else
+bool SaveAccount(const ReviveImapCredentials*) { return false; }
+bool LoadAccount(ReviveImapCredentials*) { return false; }
+void ForgetAccount() { ReviveImapClearCredentials(&g_sessionCredentials); }
+#endif
 
 void InitializeTheme()
 {
@@ -633,6 +796,9 @@ DWORD WINAPI NetworkWorker(void* context)
                     REVIVE_IMAP_MAX_MESSAGES, &messageCount);
                 if (imapResult == REVIVE_IMAP_OK)
                 {
+                    if (g_accountRemember != NULL &&
+                        SendMessage(g_accountRemember, BM_GETCHECK, 0, 0) == BST_CHECKED)
+                        g_accountStored = SaveAccount(&request->credentials);
                     for (int index = 0; index < messageCount; ++index)
                         PostInboxMessage(window, &messages[index]);
                     PostStatus(window, REVIVE_UI_IMAP, REVIVE_UI_OK, 0);
@@ -865,9 +1031,15 @@ void BeginWorker(HWND window, WorkerMode mode, unsigned long uid,
         const bool hasPassword = CopyEditUtf8(g_passwordEdit,
                                               request->credentials.appPassword,
                                               sizeof(request->credentials.appPassword));
-        if (hasEmail && hasPassword)
+        if (!hasEmail && !hasPassword && g_sessionCredentials.email[0] != '\0' &&
+            g_sessionCredentials.appPassword[0] != '\0')
+            CopyMemory(&request->credentials, &g_sessionCredentials,
+                       sizeof(request->credentials));
+        else if (hasEmail && hasPassword)
+        {
             CopyMemory(&g_sessionCredentials, &request->credentials,
                        sizeof(g_sessionCredentials));
+        }
         else if (hasEmail && !hasPassword &&
                  SameText(request->credentials.email, g_sessionCredentials.email) &&
                  g_sessionCredentials.appPassword[0] != '\0')
@@ -1579,17 +1751,17 @@ void CreateChildControls(HWND window)
                REVIVE_UI_NOT_RUN : REVIVE_UI_NOT_BUILT, 0);
         top += rowHeight;
     }
-    HWND emailLabel = CreateWindow(L"STATIC", L"Gmail:", WS_CHILD | WS_VISIBLE,
+    g_emailLabel = CreateWindow(L"STATIC", L"Gmail:", WS_CHILD | WS_VISIBLE,
         margin, top, credentialLabelWidth, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
-    SendMessage(emailLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    SendMessage(g_emailLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     g_emailEdit = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL,
         margin + credentialLabelWidth, top, width - (2 * margin + credentialLabelWidth), rowHeight, window,
         reinterpret_cast<HMENU>(IDC_EMAIL), GetModuleHandle(NULL), NULL);
     SendMessage(g_emailEdit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight + 3;
-    HWND passwordLabel = CreateWindow(L"STATIC", L"Password:", WS_CHILD | WS_VISIBLE,
+    g_passwordLabel = CreateWindow(L"STATIC", L"Password:", WS_CHILD | WS_VISIBLE,
         margin, top, credentialLabelWidth, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
-    SendMessage(passwordLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    SendMessage(g_passwordLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     g_passwordEdit = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_PASSWORD | ES_AUTOHSCROLL,
         margin + credentialLabelWidth, top, passwordEditWidth, rowHeight, window,
         reinterpret_cast<HMENU>(IDC_APP_PASSWORD), GetModuleHandle(NULL), NULL);
@@ -1600,6 +1772,33 @@ void CreateChildControls(HWND window)
         GetModuleHandle(NULL), NULL);
     SendMessage(g_passwordToggle, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight + margin / 2;
+    g_accountRemember = CreateWindow(L"BUTTON", L"REMEMBER ACCOUNT",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        margin, top, width - 2 * margin, rowHeight, window, NULL,
+        GetModuleHandle(NULL), NULL);
+    SendMessage(g_accountRemember, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    g_accountSaved = CreateWindow(L"STATIC", L"SIGNED IN ACCOUNT",
+        WS_CHILD, margin, top, width - 2 * margin - 76, rowHeight,
+        window, NULL, GetModuleHandle(NULL), NULL);
+    SendMessage(g_accountSaved, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    g_accountForget = CreateWindow(L"BUTTON", L"FORGET", WS_CHILD | WS_TABSTOP |
+        BS_OWNERDRAW, width - margin - 70, top, 70, rowHeight, window,
+        reinterpret_cast<HMENU>(kAccountForgetControl), GetModuleHandle(NULL), NULL);
+    SendMessage(g_accountForget, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    ShowWindow(g_accountSaved, SW_HIDE);
+    ShowWindow(g_accountForget, SW_HIDE);
+    if (g_sessionCredentials.email[0] != '\0' &&
+        g_sessionCredentials.appPassword[0] != '\0')
+    {
+        ShowWindow(g_emailLabel, SW_HIDE);
+        ShowWindow(g_emailEdit, SW_HIDE);
+        ShowWindow(g_passwordLabel, SW_HIDE);
+        ShowWindow(g_passwordEdit, SW_HIDE);
+        ShowWindow(g_passwordToggle, SW_HIDE);
+        ShowWindow(g_accountRemember, SW_HIDE);
+        ShowWindow(g_accountSaved, SW_SHOW);
+        ShowWindow(g_accountForget, SW_SHOW);
+    }
     const int buttonWidth = (width - 3 * margin) / 2;
     const int buttonHeight = rowHeight + 5;
     g_runButton = CreateWindow(L"BUTTON", L"TEST TLS", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
@@ -1638,6 +1837,41 @@ void CreateChildControls(HWND window)
         reinterpret_cast<HMENU>(IDC_INBOX), GetModuleHandle(NULL), NULL);
     SendMessage(g_inbox, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     EnableWindow(g_openButton, FALSE);
+}
+
+void ShowLoginControls()
+{
+    if (g_emailLabel != NULL)
+        ShowWindow(g_emailLabel, SW_SHOW);
+    if (g_emailEdit != NULL)
+        ShowWindow(g_emailEdit, SW_SHOW);
+    if (g_passwordLabel != NULL)
+        ShowWindow(g_passwordLabel, SW_SHOW);
+    if (g_passwordEdit != NULL)
+        ShowWindow(g_passwordEdit, SW_SHOW);
+    if (g_passwordToggle != NULL)
+        ShowWindow(g_passwordToggle, SW_SHOW);
+    if (g_accountRemember != NULL)
+        ShowWindow(g_accountRemember, SW_SHOW);
+    if (g_accountSaved != NULL)
+        ShowWindow(g_accountSaved, SW_HIDE);
+    if (g_accountForget != NULL)
+        ShowWindow(g_accountForget, SW_HIDE);
+    SetWindowText(g_emailEdit, L"");
+    SetWindowText(g_passwordEdit, L"");
+    SetFocus(g_emailEdit);
+}
+
+void ShowSavedAccountControls()
+{
+    ShowWindow(g_emailLabel, SW_HIDE);
+    ShowWindow(g_emailEdit, SW_HIDE);
+    ShowWindow(g_passwordLabel, SW_HIDE);
+    ShowWindow(g_passwordEdit, SW_HIDE);
+    ShowWindow(g_passwordToggle, SW_HIDE);
+    ShowWindow(g_accountRemember, SW_HIDE);
+    ShowWindow(g_accountSaved, SW_SHOW);
+    ShowWindow(g_accountForget, SW_SHOW);
 }
 }
 
@@ -1685,6 +1919,7 @@ ATOM RegisterReviveWindowClass(HINSTANCE instance)
 HWND CreateReviveMainWindow(HINSTANCE instance, int showCommand)
 {
     InitializeTheme();
+    LoadAccount(&g_sessionCredentials);
     HWND window = CreateWindow(kWindowClass, L"ReviveCE Mail", WS_VISIBLE | WS_CAPTION | WS_SYSMENU,
         CW_USEDEFAULT, CW_USEDEFAULT, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN),
         NULL, NULL, instance, NULL);
@@ -1708,6 +1943,13 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         CreateChildControls(window);
         return 0;
     case WM_COMMAND:
+        if (LOWORD(wParam) == kAccountForgetControl && HIWORD(wParam) == BN_CLICKED)
+        {
+            ForgetAccount();
+            ShowLoginControls();
+            SetMailHint(L"ACCOUNT CLEARED");
+            return 0;
+        }
         if (LOWORD(wParam) == IDC_RUN_TEST && HIWORD(wParam) == BN_CLICKED)
         { BeginWorker(window, WORKER_TLS_TEST, 0, 0); return 0; }
         if (LOWORD(wParam) == IDC_REFRESH_INBOX && HIWORD(wParam) == BN_CLICKED)
@@ -1799,6 +2041,11 @@ LRESULT CALLBACK ReviveWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         if (g_feedFetch != NULL)
             EnableWindow(g_feedFetch, TRUE);
         SetFocus(g_inboxCanOpen ? g_inbox : g_refreshButton);
+        if (g_accountStored)
+        {
+            ShowSavedAccountControls();
+            g_accountStored = false;
+        }
         ReviveLog("APP", wParam ? "secure operation completed" : "secure operation failed", 0);
         return 0;
     case WM_CLOSE:

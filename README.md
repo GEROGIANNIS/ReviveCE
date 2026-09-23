@@ -25,6 +25,8 @@ The repository currently contains the **M0-M8 ReviveTLS mail, HTTPS, and feed pr
 - a required encrypted IMAP greeting before the TLS test reports success;
 - a Gmail App Password held only in the active application session, never
   written to the log or settings;
+- an optional device-bound encrypted account file so a remembered Gmail
+  account can start without showing the login fields;
 - tagged IMAP `LOGIN`, `SELECT INBOX`, `UID SEARCH`, and header-only `UID
   FETCH` commands for the newest 25 messages, including sender, subject,
   date, and unread state.
@@ -91,7 +93,9 @@ See [docs/BUILDING.md](docs/BUILDING.md) for CI setup and device deployment,
 ## What the app shows on the phone
 
 `ReviveCE Mail` opens with separate DNS, TCP, TLS 1.2, Certificate, Hostname,
-and SERVICE status rows, followed by Gmail address and App Password inputs.
+and SERVICE status rows. On a new device it shows Gmail address and App
+Password inputs plus **REMEMBER ACCOUNT**. When an account is remembered, the
+login fields are hidden and the home screen shows **FORGET** instead.
 `TEST TLS` proves the encrypted connection without logging in. `REFRESH INBOX`
 authenticates with the App Password, clears that edit field, and fills the list
 with up to 25 recent messages. Each row shows a `*` when unread, plus sender,
@@ -103,8 +107,10 @@ tap it again to **HIDE** it before refreshing.
 Select a row and tap `OPEN` (or double-tap it) to fetch the chosen message.
 The full-screen reader shows its sender, subject, date, and a scrollable
 plain-text body. When only HTML is available, the reader labels its simplified
-text conversion. The App Password is never written to logs or disk; it remains
-only in memory until ReviveCE closes so selected messages can be opened.
+text conversion. The App Password is never written to logs. When
+**REMEMBER ACCOUNT** is checked, it is stored only in the hidden device-bound
+encrypted account file; otherwise it remains only in memory until ReviveCE
+closes. **FORGET** deletes the saved file and clears the in-memory credentials.
 The password field is cleared after refresh, but do not re-enter it for `OPEN`,
 `COMPOSE`, or another refresh of the same address: the active in-memory session
 is reused. If a message cannot be read, the IMAP
