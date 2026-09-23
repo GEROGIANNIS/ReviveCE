@@ -20,6 +20,7 @@ const int kReaderLoadMoreControl = 2001;
 const int kComposeSendControl = 2002;
 const int kHttpFetchControl = 2003;
 const int kFeedFetchControl = 2004;
+const int kFeedSourceControl = 2005;
 const char* const kImapServerHost = "imap.gmail.com";
 const unsigned short kImapServerPort = 993;
 const char* const kSmtpServerHost = "smtp.gmail.com";
@@ -74,9 +75,26 @@ HWND g_httpStatus = NULL;
 HWND g_httpBody = NULL;
 HWND g_feedWindow = NULL;
 HWND g_feedUrl = NULL;
+HWND g_feedSource = NULL;
 HWND g_feedFetch = NULL;
 HWND g_feedStatus = NULL;
 HWND g_feedItems = NULL;
+
+struct ReviveFeedSource
+{
+    const wchar_t* name;
+    const wchar_t* url;
+};
+
+const ReviveFeedSource kFeedSources[] =
+{
+    { L"Hacker News Front Page", L"https://hnrss.org/frontpage" },
+    { L"Hacker News Newest", L"https://hnrss.org/newest" },
+    { L"Hacker News Best", L"https://hnrss.org/best" },
+    { L"Hacker News Ask", L"https://hnrss.org/ask" },
+    { L"Hacker News Show", L"https://hnrss.org/show" }
+};
+const int kFeedSourceCount = sizeof(kFeedSources) / sizeof(kFeedSources[0]);
 ReviveImapCredentials g_sessionCredentials;
 bool g_inboxCanOpen = false;
 
@@ -942,6 +960,13 @@ void OpenHttp()
     }
 }
 
+void SelectFeedSource(int index)
+{
+    if (g_feedUrl == NULL || index < 0 || index >= kFeedSourceCount)
+        return;
+    SetWindowText(g_feedUrl, kFeedSources[index].url);
+}
+
 LRESULT CALLBACK FeedWindowProc(HWND window, UINT message,
                                 WPARAM wParam, LPARAM lParam)
 {
@@ -955,6 +980,8 @@ LRESULT CALLBACK FeedWindowProc(HWND window, UINT message,
         const int rowHeight = 24;
         int buttonWidth;
         int listTop;
+        const int sourceTop = margin + rowHeight + 5;
+        const int buttonTop = sourceTop + rowHeight + 5;
         GetClientRect(window, &client);
         buttonWidth = (client.right - 3 * margin) / 2;
         HWND urlLabel = CreateWindow(L"STATIC", L"Feed URL:", WS_CHILD | WS_VISIBLE,
@@ -965,20 +992,33 @@ LRESULT CALLBACK FeedWindowProc(HWND window, UINT message,
             margin + 60, margin, client.right - 2 * margin - 60, rowHeight, window,
             NULL, GetModuleHandle(NULL), NULL);
         SendMessage(g_feedUrl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        g_feedFetch = CreateWindow(L"BUTTON", L"REFRESH", WS_CHILD | WS_VISIBLE |
-            WS_TABSTOP | BS_DEFPUSHBUTTON, margin, margin + rowHeight + 5, buttonWidth,
+        HWND sourceLabel = CreateWindow(L"STATIC", L"RSS Feed:", WS_CHILD | WS_VISIBLE,
+            margin, sourceTop, 60, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
+        SendMessage(sourceLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        g_feedSource = CreateWindow(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE |
+            WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+            margin + 60, sourceTop, client.right - 2 * margin - 60, rowHeight * 6,
+            window, reinterpret_cast<HMENU>(kFeedSourceControl),
+            GetModuleHandle(NULL), NULL);
+        SendMessage(g_feedSource, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        for (int index = 0; index < kFeedSourceCount; ++index)
+            SendMessage(g_feedSource, CB_ADDSTRING, 0,
+                        reinterpret_cast<LPARAM>(kFeedSources[index].name));
+        SendMessage(g_feedSource, CB_SETCURSEL, 0, 0);
+        g_feedFetch = CreateWindow(L"BUTTON", L"OPEN RSS", WS_CHILD | WS_VISIBLE |
+            WS_TABSTOP | BS_DEFPUSHBUTTON, margin, buttonTop, buttonWidth,
             rowHeight, window, reinterpret_cast<HMENU>(kFeedFetchControl),
             GetModuleHandle(NULL), NULL);
         SendMessage(g_feedFetch, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         HWND backButton = CreateWindow(L"BUTTON", L"BACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-            margin * 2 + buttonWidth, margin + rowHeight + 5, buttonWidth,
+            margin * 2 + buttonWidth, buttonTop, buttonWidth,
             rowHeight, window, reinterpret_cast<HMENU>(IDOK), GetModuleHandle(NULL), NULL);
         SendMessage(backButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g_feedStatus = CreateWindow(L"STATIC", L"RSS 2.0 and Atom 1.0. No feed is saved yet.",
-            WS_CHILD | WS_VISIBLE, margin, margin + (rowHeight + 5) * 2,
+            WS_CHILD | WS_VISIBLE, margin, buttonTop + rowHeight + 5,
             client.right - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
         SendMessage(g_feedStatus, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        listTop = margin + (rowHeight + 5) * 3;
+        listTop = buttonTop + (rowHeight + 5) * 2;
         g_feedItems = CreateWindow(L"LISTBOX", L"", WS_CHILD | WS_VISIBLE | WS_BORDER |
             WS_VSCROLL | LBS_NOINTEGRALHEIGHT, margin, listTop,
             client.right - 2 * margin, client.bottom - listTop - margin, window, NULL,
@@ -988,6 +1028,14 @@ LRESULT CALLBACK FeedWindowProc(HWND window, UINT message,
         return 0;
     }
     case WM_COMMAND:
+        if (LOWORD(wParam) == kFeedSourceControl &&
+            HIWORD(wParam) == CBN_SELCHANGE)
+        {
+            const int index = static_cast<int>(SendMessage(
+                g_feedSource, CB_GETCURSEL, 0, 0));
+            SelectFeedSource(index);
+            return 0;
+        }
         if (LOWORD(wParam) == IDOK && HIWORD(wParam) == BN_CLICKED)
         {
             DestroyWindow(window);
@@ -1013,6 +1061,7 @@ LRESULT CALLBACK FeedWindowProc(HWND window, UINT message,
     case WM_DESTROY:
         g_feedWindow = NULL;
         g_feedUrl = NULL;
+        g_feedSource = NULL;
         g_feedFetch = NULL;
         g_feedStatus = NULL;
         g_feedItems = NULL;
