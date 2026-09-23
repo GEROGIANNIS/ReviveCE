@@ -13,7 +13,6 @@
 #include <wolfssl/wolfcrypt/aes.h>
 #include <wolfssl/wolfcrypt/random.h>
 #include <wolfssl/wolfcrypt/sha256.h>
-#include <pkfuncs.h>
 #endif
 
 namespace
@@ -152,26 +151,37 @@ bool BuildAccountKey(unsigned char* key, int capacity)
 {
     static const unsigned char application[] =
         "ReviveCE account storage v1";
-    unsigned char deviceId[64];
-    DWORD deviceIdLength = 0;
+    SYSTEM_INFO systemInfo;
+    OSVERSIONINFO osVersion;
+    int screenWidth;
+    int screenHeight;
     Sha256 sha;
     if (key == NULL || capacity < 32)
         return false;
-    if (GetDeviceUniqueID(const_cast<BYTE*>(application),
-                          sizeof(application) - 1, 1, deviceId,
-                          sizeof(deviceId), &deviceIdLength) != S_OK ||
-        deviceIdLength == 0)
-        return false;
+    ZeroMemory(&osVersion, sizeof(osVersion));
+    osVersion.dwOSVersionInfoSize = sizeof(osVersion);
+    GetSystemInfo(&systemInfo);
+    GetVersionEx(&osVersion);
+    screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    screenHeight = GetSystemMetrics(SM_CYSCREEN);
     if (wc_InitSha256(&sha) != 0 ||
         wc_Sha256Update(&sha, application, sizeof(application) - 1) != 0 ||
-        wc_Sha256Update(&sha, deviceId, deviceIdLength) != 0 ||
+        wc_Sha256Update(&sha, reinterpret_cast<unsigned char*>(&systemInfo),
+                        sizeof(systemInfo)) != 0 ||
+        wc_Sha256Update(&sha, reinterpret_cast<unsigned char*>(&osVersion),
+                        sizeof(osVersion)) != 0 ||
+        wc_Sha256Update(&sha, reinterpret_cast<unsigned char*>(&screenWidth),
+                        sizeof(screenWidth)) != 0 ||
+        wc_Sha256Update(&sha, reinterpret_cast<unsigned char*>(&screenHeight),
+                        sizeof(screenHeight)) != 0 ||
         wc_Sha256Final(&sha, key) != 0)
     {
         ClearBytes(&sha, sizeof(sha));
         return false;
     }
     ClearBytes(&sha, sizeof(sha));
-    ClearBytes(deviceId, sizeof(deviceId));
+    ClearBytes(&systemInfo, sizeof(systemInfo));
+    ClearBytes(&osVersion, sizeof(osVersion));
     return true;
 }
 
