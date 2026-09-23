@@ -254,6 +254,19 @@ void CreatePanelHeader(HWND window, const wchar_t* section, HFONT font,
     SendMessage(header, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 }
 
+void ActivatePanel(HWND panel)
+{
+    RECT frame;
+    if (panel == NULL || g_mainWindow == NULL)
+        return;
+    GetWindowRect(g_mainWindow, &frame);
+    SetWindowPos(panel, HWND_TOP, frame.left, frame.top,
+                 frame.right - frame.left, frame.bottom - frame.top,
+                 SWP_SHOWWINDOW);
+    SetForegroundWindow(panel);
+    BringWindowToTop(panel);
+}
+
 void CopyReplyAddress(wchar_t* destination, int capacity, const wchar_t* sender)
 {
     const wchar_t* start;
@@ -896,7 +909,7 @@ void OpenCompose()
 {
     if (g_composeWindow != NULL)
     {
-        ShowWindow(g_composeWindow, SW_SHOW);
+        ActivatePanel(g_composeWindow);
         return;
     }
     if (g_sessionCredentials.email[0] == '\0' ||
@@ -905,10 +918,9 @@ void OpenCompose()
         SetRow(REVIVE_UI_IMAP, REVIVE_UI_FAILED, REVIVE_SMTP_CONFIGURATION_ERROR);
         return;
     }
-    RECT client;
-    GetClientRect(g_mainWindow, &client);
     g_composeWindow = CreateWindow(kComposeWindowClass, L"ReviveCE Compose",
-        WS_CHILD | WS_VISIBLE, 0, 0, client.right, client.bottom,
+        WS_POPUP | WS_VISIBLE, 0, 0, GetSystemMetrics(SM_CXSCREEN),
+        GetSystemMetrics(SM_CYSCREEN),
         g_mainWindow, NULL, GetModuleHandle(NULL), NULL);
     if (g_composeWindow != NULL)
     {
@@ -918,7 +930,7 @@ void OpenCompose()
             SetWindowText(g_composeSubject, g_replySubject);
         g_replyRecipient[0] = L'\0';
         g_replySubject[0] = L'\0';
-        ShowWindow(g_composeWindow, SW_SHOW);
+        ActivatePanel(g_composeWindow);
         UpdateWindow(g_composeWindow);
     }
 }
@@ -1028,17 +1040,16 @@ void OpenHttp()
 {
     if (g_httpWindow != NULL)
     {
-        ShowWindow(g_httpWindow, SW_SHOW);
+        ActivatePanel(g_httpWindow);
         return;
     }
-    RECT client;
-    GetClientRect(g_mainWindow, &client);
     g_httpWindow = CreateWindow(kHttpWindowClass, L"ReviveCE HTTPS",
-        WS_CHILD | WS_VISIBLE, 0, 0, client.right, client.bottom,
+        WS_POPUP | WS_VISIBLE, 0, 0, GetSystemMetrics(SM_CXSCREEN),
+        GetSystemMetrics(SM_CYSCREEN),
         g_mainWindow, NULL, GetModuleHandle(NULL), NULL);
     if (g_httpWindow != NULL)
     {
-        ShowWindow(g_httpWindow, SW_SHOW);
+        ActivatePanel(g_httpWindow);
         UpdateWindow(g_httpWindow);
     }
 }
@@ -1189,17 +1200,16 @@ void OpenFeeds()
 {
     if (g_feedWindow != NULL)
     {
-        ShowWindow(g_feedWindow, SW_SHOW);
+        ActivatePanel(g_feedWindow);
         return;
     }
-    RECT client;
-    GetClientRect(g_mainWindow, &client);
     g_feedWindow = CreateWindow(kFeedWindowClass, L"ReviveCE Feeds",
-        WS_CHILD | WS_VISIBLE, 0, 0, client.right, client.bottom,
+        WS_POPUP | WS_VISIBLE, 0, 0, GetSystemMetrics(SM_CXSCREEN),
+        GetSystemMetrics(SM_CYSCREEN),
         g_mainWindow, NULL, GetModuleHandle(NULL), NULL);
     if (g_feedWindow != NULL)
     {
-        ShowWindow(g_feedWindow, SW_SHOW);
+        ActivatePanel(g_feedWindow);
         UpdateWindow(g_feedWindow);
     }
 }
@@ -1366,14 +1376,13 @@ void ShowMessageReader(ReviveUiMessageBody* content)
     }
     if (g_readerWindow != NULL)
         DestroyWindow(g_readerWindow);
-    RECT client;
-    GetClientRect(g_mainWindow, &client);
     g_readerWindow = CreateWindow(kReaderWindowClass, L"ReviveCE Message",
-        WS_CHILD | WS_VISIBLE, 0, 0, client.right, client.bottom,
+        WS_POPUP | WS_VISIBLE, 0, 0, GetSystemMetrics(SM_CXSCREEN),
+        GetSystemMetrics(SM_CYSCREEN),
         g_mainWindow, NULL, GetModuleHandle(NULL), content);
     if (g_readerWindow != NULL)
     {
-        ShowWindow(g_readerWindow, SW_SHOW);
+        ActivatePanel(g_readerWindow);
         UpdateWindow(g_readerWindow);
     }
     HeapFree(GetProcessHeap(), 0, content);
