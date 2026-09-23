@@ -805,25 +805,27 @@ void CreateChildControls(HWND window)
         reinterpret_cast<HMENU>(IDC_APP_PASSWORD), GetModuleHandle(NULL), NULL);
     SendMessage(g_passwordEdit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight + margin / 2;
-    const int buttonWidth = (width - 5 * margin) / 4;
+    const int buttonWidth = (width - 3 * margin) / 2;
+    const int buttonHeight = rowHeight + 5;
     g_runButton = CreateWindow(L"BUTTON", L"TEST TLS", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        margin, top, buttonWidth, rowHeight + 5, window,
+        margin, top, buttonWidth, buttonHeight, window,
         reinterpret_cast<HMENU>(IDC_RUN_TEST), GetModuleHandle(NULL), NULL);
     SendMessage(g_runButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     g_refreshButton = CreateWindow(L"BUTTON", L"REFRESH INBOX", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
-        margin * 2 + buttonWidth, top, buttonWidth, rowHeight + 5, window,
+        margin * 2 + buttonWidth, top, buttonWidth, buttonHeight, window,
         reinterpret_cast<HMENU>(IDC_REFRESH_INBOX), GetModuleHandle(NULL), NULL);
     SendMessage(g_refreshButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    top += buttonHeight + 5;
     g_openButton = CreateWindow(L"BUTTON", L"OPEN", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        margin * 3 + buttonWidth * 2, top, buttonWidth, rowHeight + 5, window,
+        margin, top, buttonWidth, buttonHeight, window,
         reinterpret_cast<HMENU>(IDC_OPEN_MESSAGE), GetModuleHandle(NULL), NULL);
     SendMessage(g_openButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     g_composeButton = CreateWindow(L"BUTTON", L"COMPOSE", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        margin * 4 + buttonWidth * 3, top, buttonWidth, rowHeight + 5, window,
+        margin * 2 + buttonWidth, top, buttonWidth, buttonHeight, window,
         reinterpret_cast<HMENU>(IDC_COMPOSE), GetModuleHandle(NULL), NULL);
     SendMessage(g_composeButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-    top += rowHeight + margin + 5;
-    HWND inboxLabel = CreateWindow(L"STATIC", L"Select a message then OPEN. Do not re-enter password while app is open.", WS_CHILD | WS_VISIBLE,
+    top += buttonHeight + margin / 2;
+    HWND inboxLabel = CreateWindow(L"STATIC", L"REFRESH loads mail. Select a row, then OPEN.", WS_CHILD | WS_VISIBLE,
         margin, top, width - 2 * margin, rowHeight, window, NULL, GetModuleHandle(NULL), NULL);
     SendMessage(inboxLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     top += rowHeight;
